@@ -1,0 +1,176 @@
+import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useForm } from 'react-hook-form'
+import { format } from 'date-fns'
+import * as api from '../services/api'
+
+const PTO_TYPES = [
+  { value: 'personal', label: 'Personal Time Off' },
+  { value: 'sick', label: 'Sick Leave' },
+  { value: 'holiday', label: 'Holiday' },
+  { value: 'other', label: 'Other' },
+]
+
+const HOUR_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8]
+
+interface FormData {
+  pto_date: string
+  pto_type: 'personal' | 'sick' | 'holiday' | 'other'
+  hours: number
+  notes: string
+}
+
+export default function PTOEntry() {
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const [error, setError] = useState('')
+
+  const { data: timesheet } = useQuery({
+    queryKey: ['currentTimesheet'],
+    queryFn: api.getCurrentTimesheet,
+  })
+
+  const { register, handleSubmit, watch, formState: { errors } } = useForm<FormData>({
+    defaultValues: {
+      pto_date: format(new Date(), 'yyyy-MM-dd'),
+      pto_type: 'personal',
+      hours: 8,
+      notes: '',
+    },
+  })
+
+  const createPTOMutation = useMutation({
+    mutationFn: (data: FormData) =>
+      api.createPTOEntry(timesheet!.id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['ptoEntries'] })
+      queryClient.invalidateQueries({ queryKey: ['currentTimesheet'] })
+      navigate('/')
+    },
+    onError: (err) => {
+      setError(err instanceof Error ? err.message : 'Failed to create PTO entry')
+    },
+  })
+
+  const onSubmit = (data: FormData) => {
+    if (!timesheet) return
+    createPTOMutation.mutate(data)
+  }
+
+  const canEdit = timesheet?.status === 'draft' || timesheet?.status === 'rejected'
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-bold text-gray-900">Add PTO</h2>
+        <button
+          onClick={() => navigate(-1)}
+          className="text-gray-500 hover:text-gray-700"
+        >
+          Cancel
+        </button>
+      </div>
+
+      {!canEdit && (
+        <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded-lg text-sm">
+          Your timesheet has been submitted and cannot be edited.
+        </div>
+      )}
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+          {error}
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        {/* Date */}
+        <div>
+          <label className="label">Date</label>
+          <input
+            type="date"
+            {...register('pto_date', { required: 'Date is required' })}
+            className="input"
+            disabled={!canEdit}
+          />
+          {errors.pto_date && (
+            <p className="text-red-500 text-sm mt-1">{errors.pto_date.message}</p>
+          )}
+        </div>
+
+        {/* PTO Type */}
+        <div>
+          <label className="label">PTO Type</label>
+          <div className="grid grid-cols-2 gap-2">
+            {PTO_TYPES.map((type) => (
+              <label
+                key={type.value}
+                className={`flex items-center justify-center p-3 rounded-lg border cursor-pointer transition-colors ${
+                  watch('pto_type') === type.value
+                    ? 'bg-primary-100 border-primary-500 text-primary-700'
+                    : 'border-gray-300 hover:border-gray-400'
+                } ${!canEdit ? 'opacity-50 cursor-not-allowed' : ''}`}
+              >
+                <input
+                  type="radio"
+                  value={type.value}
+                  {...register('pto_type')}
+                  className="sr-only"
+                  disabled={!canEdit}
+                />
+                {type.label}
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {/* Hours */}
+        <div>
+          <label className="label">Hours</label>
+          <div className="grid grid-cols-4 gap-2">
+            {HOUR_OPTIONS.map((h) => (
+              <label
+                key={h}
+                className={`flex items-center justify-center p-3 rounded-lg border cursor-pointer transition-colors ${
+                  watch('hours') === h
+                    ? 'bg-primary-100 border-primary-500 text-primary-700'
+                    : 'border-gray-300 hover:border-gray-400'
+                } ${!canEdit ? 'opacity-50 cursor-not-allowed' : ''}`}
+              >
+                <input
+                  type="radio"
+                  value={h}
+                  {...register('hours', { valueAsNumber: true })}
+                  className="sr-only"
+                  disabled={!canEdit}
+                />
+                {h}
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {/* Notes */}
+        <div>
+          <label className="label">Notes (optional)</label>
+          <textarea
+            {...register('notes')}
+            className="input min-h-[80px]"
+            placeholder="Add any notes..."
+            disabled={!canEdit}
+          />
+        </div>
+
+        {/* Submit */}
+        <button
+          type="submit"
+          disabled={!canEdit || createPTOMutation.isPending}
+          className="btn-primary w-full py-3 text-lg"
+        >
+          {createPTOMutation.isPending ? 'Saving...' : 'Save PTO Entry'}
+        </button>
+      </form>
+    </div>
+  )
+}
