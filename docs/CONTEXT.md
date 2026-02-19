@@ -2,56 +2,77 @@
 
 ## Overview
 
-MyHours is a custom employee timesheet management system replacing an Excel-based workflow. The system supports:
-- Mobile-first time entry for field technicians
-- Manager approval workflows
-- Payroll exports for Engage (manual/CSV)
-- Future QuickBooks integration for invoicing
-- Staggered bi-weekly pay periods (Group A and Group B)
+MyHours is a full-stack employee timesheet system that replaces a spreadsheet workflow with role-based web access and API-driven reporting.
 
-## Architecture
+Current implementation includes:
+- Employee time and PTO entry by pay period
+- Submit -> approve/reject workflow with reopen support
+- Manager/admin role controls
+- Payroll, billing, and Engage CSV exports
+- Staggered bi-weekly pay period groups (A/B)
+- Password change and reset token flows
 
-### Backend (FastAPI)
-- **Framework:** FastAPI with async SQLAlchemy
-- **Database:** PostgreSQL
-- **Auth:** JWT tokens with bcrypt password hashing
-- **API:** RESTful endpoints at `/api/*`
+## Current Architecture
 
-### Frontend (Planned)
-- **Framework:** React with Tailwind CSS
-- **Type:** Progressive Web App (PWA)
-- **Mobile:** Installable, offline-capable
+### Backend
+- **Framework:** FastAPI
+- **Database:** PostgreSQL with SQLAlchemy 2.x + Alembic
+- **Authentication:** JWT bearer tokens + bcrypt password hashes
+- **Primary API Base:** `/api/*`
+- **Interactive docs:** `/api/docs` and `/api/redoc`
 
-### Deployment (Planned)
-- **Dev:** Local MacBook with Docker for PostgreSQL
-- **Prod:** Google Compute Engine VM
+### Frontend
+- **Framework:** React 18 + TypeScript (Vite)
+- **State/Data:** TanStack Query + React Hook Form
+- **Styling:** Tailwind CSS
+- **PWA:** `vite-plugin-pwa` with API/network runtime caching
 
-## Key Files
+### Deployment/Runtime Options
+- Local development via `make` targets
+- Local Docker Compose (`db`, `backend`, `frontend`)
+- Production details are environment-specific and not yet fully documented here
 
-- `backend/app/main.py` - FastAPI application entry point
-- `backend/app/models/` - SQLAlchemy ORM models
-- `backend/app/api/` - API route handlers
-- `backend/app/core/config.py` - Environment configuration
-- `backend/scripts/seed_data.py` - Database seeding script
+## Key Directories
 
-## Development Setup
+- `backend/app/main.py` - FastAPI app and router registration
+- `backend/app/api/` - Route handlers (`auth`, `timesheets`, `reports`, etc.)
+- `backend/app/models/` - SQLAlchemy models
+- `backend/app/schemas/` - Pydantic request/response schemas
+- `backend/app/services/` - Cross-cutting services (e.g., email logging service)
+- `backend/scripts/seed_data.py` - Seed core reference data + admin user
+- `backend/scripts/import_locations.py` - Import location/job code data from spreadsheet
+- `frontend/src/pages/` - Main application pages (dashboard, entry, approvals, reports, admin)
+- `frontend/src/services/api.ts` - Frontend API client wrapper
 
-1. Install Python 3.12+
-2. Start PostgreSQL: `make db-start`
-3. Install deps: `make install`
-4. Copy `.env.example` to `.env` in backend/
-5. Run migrations: `make migrate`
-6. Seed data: `make seed`
-7. Start server: `make dev`
+## Core Domain Workflow
 
-## Data Model
+Timesheet lifecycle:
+1. Employee creates/edits a timesheet in `draft` (or updates after `rejected`)
+2. Employee submits timesheet (`submitted`)
+3. Manager/admin approves (`approved`) or rejects (`rejected`) with reason
+4. Manager/admin can reopen submitted/approved timesheets back to `draft`
 
-Timesheets follow this workflow:
-1. Employee creates/edits timesheet entries (draft)
-2. Employee submits timesheet
-3. Manager approves or rejects with reason
-4. If rejected, employee can edit and resubmit
+Access model:
+- **Employee:** own timesheets and entries
+- **Manager:** approvals + reports + broader timesheet visibility
+- **Admin:** manager permissions + employee administration
 
-Pay periods are staggered:
-- Group A and Group B employees are on alternating 2-week cycles
-- This allows payroll processing to be spread across weeks
+Pay period model:
+- Employees are assigned to Group A or B
+- Pay periods are generated per group on alternating 2-week cycles
+
+## Development Setup (Current)
+
+1. Install prerequisites: Python 3.12+, Node.js 20+, Docker (optional but recommended)
+2. Start Postgres (`make db-start`) or run full stack via Compose
+3. Backend dependencies: `make install`
+4. Frontend dependencies: `make install-frontend`
+5. Run DB migrations: `make migrate`
+6. Seed base data: `make seed`
+7. Run backend: `make dev`
+8. Run frontend: `make dev-frontend`
+
+## Known Documentation Notes
+
+- This project is actively evolving; docs should prefer "current implementation" language over "planned" where code already exists.
+- Email notifications are currently logged by the backend service in development mode rather than sent through SMTP/third-party mail providers.
