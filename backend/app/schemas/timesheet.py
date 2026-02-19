@@ -38,3 +38,4 @@ class TimesheetResponse(TimesheetBase, TimestampSchema):
     approved_at: Optional[datetime] = None
     approved_by: Optional[UUID] = None
     rejection_reason: Optional[str] = None
+    employee_name: Optional[str] = None

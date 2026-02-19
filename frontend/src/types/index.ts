@@ -57,6 +57,7 @@ export interface Timesheet {
   approved_at: string | null
   approved_by: string | null
   rejection_reason: string | null
+  employee_name: string | null
   created_at: string
   updated_at: string
 }

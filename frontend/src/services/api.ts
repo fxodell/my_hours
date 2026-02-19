@@ -121,6 +121,18 @@ export async function approveTimesheet(id: string): Promise<Timesheet> {
   })
 }
 
+export async function deleteTimesheet(id: string): Promise<void> {
+  return fetchApi<void>(`/timesheets/${id}`, {
+    method: 'DELETE',
+  })
+}
+
+export async function reopenTimesheet(id: string): Promise<Timesheet> {
+  return fetchApi<Timesheet>(`/timesheets/${id}/reopen`, {
+    method: 'POST',
+  })
+}
+
 export async function rejectTimesheet(id: string, reason: string): Promise<Timesheet> {
   return fetchApi<Timesheet>(
     `/timesheets/${id}/reject?rejection_reason=${encodeURIComponent(reason)}`,

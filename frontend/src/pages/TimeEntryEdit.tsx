@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import * as api from '../services/api'
 import type { TimeEntryCreate } from '../types'
+import SearchableSelect from '../components/SearchableSelect'
 
 const HOUR_OPTIONS = [
   0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8,
@@ -61,7 +62,7 @@ export default function TimeEntryEdit() {
     queryFn: api.getServiceTypes,
   })
 
-  const { register, handleSubmit, watch, reset, formState: { errors } } = useForm<FormData>({
+  const { register, handleSubmit, watch, reset, setValue, formState: { errors } } = useForm<FormData>({
     defaultValues: {
       work_date: '',
       work_mode: 'remote',
@@ -280,21 +281,19 @@ export default function TimeEntryEdit() {
         </div>
 
         {/* Location */}
-        {selectedClientId && (
+        {selectedClientId && locations && locations.length > 0 && (
           <div>
             <label className="label">Location</label>
-            <select
-              {...register('location_id')}
-              className="input"
+            <SearchableSelect
+              options={(locations || []).map((l) => ({
+                value: l.id,
+                label: `${l.region ? `${l.region} - ` : ''}${l.site_name}`,
+              }))}
+              value={watch('location_id')}
+              onChange={(val) => setValue('location_id', val)}
+              placeholder="Select a location"
               disabled={!canEdit}
-            >
-              <option value="">Select a location</option>
-              {locations?.map((location) => (
-                <option key={location.id} value={location.id}>
-                  {location.region ? `${location.region} - ` : ''}{location.site_name}
-                </option>
-              ))}
-            </select>
+            />
           </div>
         )}
 

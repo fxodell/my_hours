@@ -27,8 +27,8 @@ async def list_timesheets(
     pay_period_id: UUID | None = None,
     employee_id: UUID | None = None,
     status_filter: str | None = None,
-) -> list[Timesheet]:
-    query = select(Timesheet)
+) -> list[dict]:
+    query = select(Timesheet).options(selectinload(Timesheet.employee))
 
     # Non-managers can only see their own timesheets
     if not current_user.is_manager and not current_user.is_admin:
@@ -45,7 +45,15 @@ async def list_timesheets(
     query = query.order_by(Timesheet.created_at.desc())
 
     result = await db.execute(query)
-    return list(result.scalars().all())
+    timesheets = list(result.scalars().all())
+
+    return [
+        {
+            **TimesheetResponse.model_validate(ts, from_attributes=True).model_dump(),
+            "employee_name": ts.employee.full_name if ts.employee else None,
+        }
+        for ts in timesheets
+    ]
 
 
 @router.get("/current", response_model=TimesheetResponse)
@@ -725,3 +733,60 @@ async def delete_pto_entry(
 
     await db.delete(entry)
     await db.commit()
+
+
+@router.delete(
+    "/{timesheet_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_timesheet(
+    timesheet_id: UUID,
+    db: DB,
+    current_user: CurrentManager,
+) -> None:
+    """Delete a timesheet (manager/admin only)."""
+    result = await db.execute(select(Timesheet).where(Timesheet.id == timesheet_id))
+    timesheet = result.scalar_one_or_none()
+
+    if not timesheet:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Timesheet not found",
+        )
+
+    await db.delete(timesheet)
+    await db.commit()
+
+
+@router.post("/{timesheet_id}/reopen", response_model=TimesheetResponse)
+async def reopen_timesheet(
+    timesheet_id: UUID,
+    db: DB,
+    current_user: CurrentManager,
+) -> Timesheet:
+    """Reopen an approved or submitted timesheet back to draft (manager/admin only)."""
+    result = await db.execute(select(Timesheet).where(Timesheet.id == timesheet_id))
+    timesheet = result.scalar_one_or_none()
+
+    if not timesheet:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Timesheet not found",
+        )
+
+    if timesheet.status not in ("submitted", "approved"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot reopen timesheet with status '{timesheet.status}'",
+        )
+
+    timesheet.status = "draft"
+    timesheet.submitted_at = None
+    timesheet.approved_at = None
+    timesheet.approved_by = None
+    timesheet.rejection_reason = None
+
+    await db.commit()
+    await db.refresh(timesheet)
+
+    return timesheet
