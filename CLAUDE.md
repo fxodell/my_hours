@@ -15,6 +15,7 @@ make install-frontend  # Install frontend npm deps
 make db-start          # Start PostgreSQL via Docker
 make migrate           # Run Alembic migrations
 make seed              # Seed database with initial data
+make import-locations  # Import locations/job codes from Excel (requires data/ dir)
 
 # Development
 make dev               # Backend at http://localhost:8000
@@ -89,7 +90,7 @@ Tests use **in-memory SQLite** (aiosqlite) instead of PostgreSQL. Key fixtures i
 Client -> Location -> JobCode (hierarchical). TimeEntry references client, location, job_code, and service_type.
 
 ### Timesheet Workflow
-`draft` -> `submitted` -> `approved` or `rejected` (rejected returns to editable, can resubmit)
+`draft` -> `submitted` -> `approved` or `rejected` (rejected returns to editable, can resubmit). Managers can reopen approved/submitted timesheets back to draft.
 
 ### Pay Period Staggering
 Group A and Group B employees are on alternating 2-week cycles, spreading payroll processing across weeks.
@@ -116,8 +117,37 @@ Before making changes, read:
 - Token in `Authorization: Bearer <token>` header
 - Default admin: `admin@myhours.local` / `admin123`
 
+## API Endpoints (Key)
+
+### Timesheets
+- `GET /api/timesheets/current` - Get/create current timesheet for logged-in user
+- `GET /api/timesheets/{id}` - Get timesheet details
+- `POST /api/timesheets/{id}/submit` - Submit for approval
+- `POST /api/timesheets/{id}/approve` - Manager approval
+- `POST /api/timesheets/{id}/reject` - Manager rejection
+- `POST /api/timesheets/{id}/reopen` - Reopen approved/submitted timesheet to draft (manager only)
+- `DELETE /api/timesheets/{id}` - Delete timesheet (manager/admin only)
+
+### Reports (Manager only)
+- `GET /api/reports/payroll?format=excel` - Payroll export
+- `GET /api/reports/billing?format=excel` - Billing by client
+- `GET /api/reports/hours-by-employee?format=csv` - Hours summary
+- `GET /api/reports/hours-by-job-code?format=csv` - Hours by job code
+
+## Reusable Components
+
+- **SearchableSelect** (`frontend/src/components/SearchableSelect.tsx`) - Dropdown with search/filter, keyboard navigation (arrows + Enter), Escape to clear/close. Used for large option lists like locations.
+
 ## Deployment
 
-- **Dev:** Docker for PostgreSQL, local Python/Node for app
-- **Prod:** Google Compute Engine VM, or full Docker Compose (`docker-compose up -d`)
-- Backend `.env` from `.env.example`; migrations via `alembic upgrade head`
+### Local Development
+- Docker for PostgreSQL, local Python/Node for app
+- Full Docker Compose: `docker-compose up -d`
+
+### Production (GCE VM at myhours.nfmconsulting.com)
+- **Host nginx** serves static frontend from `/var/www/html` and proxies `/api/` to backend container on port 8000
+- SSL via Let's Encrypt (certbot)
+- Backend runs in Docker with volume mounts for live code reload
+- Frontend deploy: `cd frontend && npm run build && sudo cp -r dist/* /var/www/html/`
+- Backend `.env` from `.env.example`; migrations: `docker compose exec backend alembic upgrade head`
+- Import locations: `docker compose exec backend python scripts/import_locations.py` (requires `/data` volume with Excel file)
