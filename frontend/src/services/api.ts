@@ -77,9 +77,49 @@ export async function getClients(): Promise<Client[]> {
   return fetchApi<Client[]>('/clients')
 }
 
+export async function getAllClients(): Promise<Client[]> {
+  return fetchApi<Client[]>('/clients?active_only=false')
+}
+
+export async function createClient(data: { name: string; industry?: string; is_active?: boolean }): Promise<Client> {
+  return fetchApi<Client>('/clients', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function updateClient(id: string, data: Partial<{ name: string; industry: string | null; is_active: boolean }>): Promise<Client> {
+  return fetchApi<Client>(`/clients/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function deleteClient(id: string): Promise<void> {
+  return fetchApi<void>(`/clients/${id}`, { method: 'DELETE' })
+}
+
 // Service Types
 export async function getServiceTypes(): Promise<ServiceType[]> {
   return fetchApi<ServiceType[]>('/service-types')
+}
+
+export async function createServiceType(data: { name: string; is_billable?: boolean }): Promise<ServiceType> {
+  return fetchApi<ServiceType>('/service-types', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function updateServiceType(id: string, data: Partial<{ name: string; is_billable: boolean }>): Promise<ServiceType> {
+  return fetchApi<ServiceType>(`/service-types/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function deleteServiceType(id: string): Promise<void> {
+  return fetchApi<void>(`/service-types/${id}`, { method: 'DELETE' })
 }
 
 // Pay Periods
@@ -89,6 +129,40 @@ export async function getCurrentPayPeriod(): Promise<PayPeriod> {
 
 export async function getPayPeriods(limit = 10): Promise<PayPeriod[]> {
   return fetchApi<PayPeriod[]>(`/pay-periods?limit=${limit}`)
+}
+
+export async function getAllPayPeriods(params?: { period_group?: string; status_filter?: string; limit?: number }): Promise<PayPeriod[]> {
+  const searchParams = new URLSearchParams()
+  if (params?.period_group) searchParams.append('period_group', params.period_group)
+  if (params?.status_filter) searchParams.append('status_filter', params.status_filter)
+  searchParams.append('limit', String(params?.limit || 50))
+  return fetchApi<PayPeriod[]>(`/pay-periods?${searchParams.toString()}`)
+}
+
+export async function createPayPeriod(data: { period_group: string; start_date: string; end_date: string; payroll_run_date?: string }): Promise<PayPeriod> {
+  return fetchApi<PayPeriod>('/pay-periods', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function generatePayPeriods(data: { start_date: string; weeks?: number }): Promise<PayPeriod[]> {
+  const params = new URLSearchParams({ start_date: data.start_date })
+  if (data.weeks) params.append('weeks', String(data.weeks))
+  return fetchApi<PayPeriod[]>(`/pay-periods/generate?${params.toString()}`, {
+    method: 'POST',
+  })
+}
+
+export async function updatePayPeriod(id: string, data: Partial<{ start_date: string; end_date: string; payroll_run_date: string | null; status: string }>): Promise<PayPeriod> {
+  return fetchApi<PayPeriod>(`/pay-periods/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function closePayPeriod(id: string): Promise<PayPeriod> {
+  return fetchApi<PayPeriod>(`/pay-periods/${id}/close`, { method: 'POST' })
 }
 
 // Timesheets
@@ -237,9 +311,36 @@ export async function getLocations(clientId?: string): Promise<Location[]> {
   return fetchApi<Location[]>(`/locations${params}`)
 }
 
+export async function getAllLocations(clientId?: string): Promise<Location[]> {
+  const params = new URLSearchParams({ active_only: 'false' })
+  if (clientId) params.append('client_id', clientId)
+  return fetchApi<Location[]>(`/locations?${params.toString()}`)
+}
+
+export async function createLocation(data: { client_id: string; site_name: string; region?: string; is_active?: boolean }): Promise<Location> {
+  return fetchApi<Location>('/locations', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function updateLocation(id: string, data: Partial<{ site_name: string; region: string | null; is_active: boolean }>): Promise<Location> {
+  return fetchApi<Location>(`/locations/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  })
+}
+
 // Job Codes
 export async function getJobCodes(locationId: string): Promise<JobCode[]> {
   return fetchApi<JobCode[]>(`/locations/${locationId}/job-codes`)
+}
+
+export async function createJobCode(locationId: string, data: { code: string; description?: string }): Promise<JobCode> {
+  return fetchApi<JobCode>(`/locations/${locationId}/job-codes`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
 }
 
 // Reports

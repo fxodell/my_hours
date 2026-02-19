@@ -15,6 +15,7 @@ export interface Client {
   id: string
   name: string
   industry: string | null
+  quickbooks_customer_id: string | null
   is_active: boolean
 }
 
@@ -37,6 +38,7 @@ export interface JobCode {
   location_id: string
   code: string
   description: string | null
+  quickbooks_class_id: string | null
   is_active: boolean
 }
 
@@ -45,6 +47,7 @@ export interface PayPeriod {
   period_group: string
   start_date: string
   end_date: string
+  payroll_run_date: string | null
   status: 'open' | 'closed' | 'processed'
 }
 

@@ -2,77 +2,94 @@
 
 ## Overview
 
-MyHours is a full-stack employee timesheet system that replaces a spreadsheet workflow with role-based web access and API-driven reporting.
+MyHours is a mobile-first employee timesheet system that replaces spreadsheet-based payroll tracking with role-based web workflows and exportable reports.
 
 Current implementation includes:
 - Employee time and PTO entry by pay period
-- Submit -> approve/reject workflow with reopen support
-- Manager/admin role controls
-- Payroll, billing, and Engage CSV exports
+- Timesheet workflow: `draft -> submitted -> approved/rejected`, with manager/admin reopen
+- Role-based access controls for employee, manager, and admin use cases
+- Manager reporting exports (payroll, billing, hours by employee, hours by job code)
 - Staggered bi-weekly pay period groups (A/B)
-- Password change and reset token flows
+- Password change + password reset request/reset flows
 
 ## Current Architecture
 
 ### Backend
-- **Framework:** FastAPI
-- **Database:** PostgreSQL with SQLAlchemy 2.x + Alembic
-- **Authentication:** JWT bearer tokens + bcrypt password hashes
-- **Primary API Base:** `/api/*`
-- **Interactive docs:** `/api/docs` and `/api/redoc`
+- **Framework:** FastAPI (Python 3.12)
+- **Data layer:** SQLAlchemy 2.x + Alembic
+- **Database:** PostgreSQL in runtime environments
+- **AuthN/AuthZ:** JWT bearer token auth, role checks via dependency injection
+- **API base path:** `/api/*`
+- **Docs/OpenAPI:** `/api/docs`, `/api/redoc`, `/api/openapi.json`
+- **Health endpoint:** `/api/health`
 
 ### Frontend
-- **Framework:** React 18 + TypeScript (Vite)
-- **State/Data:** TanStack Query + React Hook Form
+- **Framework:** React 18 + TypeScript + Vite
+- **State/data:** TanStack Query + React Context + React Hook Form
 - **Styling:** Tailwind CSS
-- **PWA:** `vite-plugin-pwa` with API/network runtime caching
+- **PWA:** `vite-plugin-pwa` with runtime caching for API/font assets
+- **Route guards:** `ProtectedRoute`, `ManagerRoute`, `AdminRoute`
 
-### Deployment/Runtime Options
-- Local development via `make` targets
-- Local Docker Compose (`db`, `backend`, `frontend`)
-- Production details are environment-specific and not yet fully documented here
+### Database Engine Pattern
+
+The backend uses two SQLAlchemy engines from `backend/app/core/database.py`:
+- **Async engine (`asyncpg`)** for request handling via `get_db()`
+- **Sync engine (`psycopg2`)** for migrations/scripts
+
+### Runtime and Deployment Options
+- Local development through `make` targets (`dev`, `dev-frontend`, `dev-all`)
+- Local Docker Compose stack (`db`, `backend`, `frontend`)
+- Production deployment details are partially documented in project guidance and should be consolidated over time
 
 ## Key Directories
 
-- `backend/app/main.py` - FastAPI app and router registration
-- `backend/app/api/` - Route handlers (`auth`, `timesheets`, `reports`, etc.)
-- `backend/app/models/` - SQLAlchemy models
-- `backend/app/schemas/` - Pydantic request/response schemas
-- `backend/app/services/` - Cross-cutting services (e.g., email logging service)
-- `backend/scripts/seed_data.py` - Seed core reference data + admin user
-- `backend/scripts/import_locations.py` - Import location/job code data from spreadsheet
-- `frontend/src/pages/` - Main application pages (dashboard, entry, approvals, reports, admin)
-- `frontend/src/services/api.ts` - Frontend API client wrapper
+- `backend/app/main.py` - FastAPI app configuration and router registration
+- `backend/app/api/` - Route handlers (`auth`, `timesheets`, `reports`, admin CRUD)
+- `backend/app/api/deps.py` - Auth and role dependency aliases (`CurrentUser`, `CurrentManager`, `CurrentAdmin`)
+- `backend/app/models/` - SQLAlchemy models + mixins
+- `backend/app/schemas/` - Pydantic schemas
+- `backend/scripts/seed_data.py` - Seed reference data + initial admin
+- `backend/scripts/import_locations.py` - Location/job-code import utility
+- `frontend/src/App.tsx` - Frontend route map and access guards
+- `frontend/src/pages/` - User, manager, and admin page components
+- `frontend/src/services/api.ts` - Frontend API wrapper and auth token handling
 
 ## Core Domain Workflow
 
 Timesheet lifecycle:
-1. Employee creates/edits a timesheet in `draft` (or updates after `rejected`)
+1. Employee creates/edits a timesheet in `draft` (or edits after `rejected`)
 2. Employee submits timesheet (`submitted`)
 3. Manager/admin approves (`approved`) or rejects (`rejected`) with reason
-4. Manager/admin can reopen submitted/approved timesheets back to `draft`
+4. Manager/admin may reopen submitted/approved timesheets back to `draft`
 
 Access model:
 - **Employee:** own timesheets and entries
-- **Manager:** approvals + reports + broader timesheet visibility
-- **Admin:** manager permissions + employee administration
+- **Manager:** approvals, reports, broader timesheet visibility
+- **Admin:** manager capabilities plus employee/client/service/location/pay-period administration
 
 Pay period model:
-- Employees are assigned to Group A or B
-- Pay periods are generated per group on alternating 2-week cycles
+- Employees are assigned to Group A or Group B
+- Pay periods are generated by group on alternating two-week cycles
 
 ## Development Setup (Current)
 
-1. Install prerequisites: Python 3.12+, Node.js 20+, Docker (optional but recommended)
-2. Start Postgres (`make db-start`) or run full stack via Compose
-3. Backend dependencies: `make install`
-4. Frontend dependencies: `make install-frontend`
-5. Run DB migrations: `make migrate`
-6. Seed base data: `make seed`
-7. Run backend: `make dev`
-8. Run frontend: `make dev-frontend`
+1. Install prerequisites: Python 3.12+, Node.js 20+, Docker
+2. Start database: `make db-start`
+3. Install backend deps: `make install`
+4. Install frontend deps: `make install-frontend`
+5. Apply migrations: `make migrate`
+6. Seed baseline data: `make seed`
+7. Run backend API: `make dev` (port `8000`)
+8. Run frontend app: `make dev-frontend` (port `3000`)
 
-## Known Documentation Notes
+## Testing State
 
-- This project is actively evolving; docs should prefer "current implementation" language over "planned" where code already exists.
-- Email notifications are currently logged by the backend service in development mode rather than sent through SMTP/third-party mail providers.
+- Backend tests currently run against in-memory SQLite (`backend/tests/conftest.py`)
+- Existing tests focus on auth and health smoke paths
+- Integration coverage for end-to-end timesheet/report workflows is still pending
+
+## Known Gaps / Follow-ups
+
+- Frontend dev proxy is currently configured for backend port `8002`; default backend `make dev` runs on `8000`
+- Docker backend healthcheck currently points to `/health`; app health route is `/api/health`
+- Email notifications are currently logged in development mode rather than sent through an SMTP/provider integration

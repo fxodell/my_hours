@@ -12,6 +12,10 @@ import TimesheetDetail from './pages/TimesheetDetail'
 import Approvals from './pages/Approvals'
 import Reports from './pages/Reports'
 import Employees from './pages/Employees'
+import Clients from './pages/Clients'
+import ServiceTypes from './pages/ServiceTypes'
+import LocationsPage from './pages/Locations'
+import PayPeriodsPage from './pages/PayPeriods'
 import Profile from './pages/Profile'
 import ForgotPassword from './pages/ForgotPassword'
 import ResetPassword from './pages/ResetPassword'
@@ -97,6 +101,38 @@ export default function App() {
           element={
             <AdminRoute>
               <Employees />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="clients"
+          element={
+            <AdminRoute>
+              <Clients />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="service-types"
+          element={
+            <AdminRoute>
+              <ServiceTypes />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="locations"
+          element={
+            <AdminRoute>
+              <LocationsPage />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="pay-periods"
+          element={
+            <AdminRoute>
+              <PayPeriodsPage />
             </AdminRoute>
           }
         />

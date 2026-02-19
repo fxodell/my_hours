@@ -60,7 +60,7 @@ All routers are mounted under `/api` prefix in `main.py`. Auth uses JWT tokens (
 
 ### Frontend: API Proxy
 
-Vite dev server proxies `/api/*` requests to `http://localhost:8002` (see `frontend/vite.config.ts`). The `fetchApi` helper in `frontend/src/services/api.ts` handles JWT token from localStorage, auto-redirects to `/login` on 401.
+Vite dev server proxies `/api/*` requests to `http://localhost:8002` (see `frontend/vite.config.ts`). **Note:** `make dev` runs the backend on port 8000, so for local dev either change the proxy target or run uvicorn on 8002. The `fetchApi` helper in `frontend/src/services/api.ts` handles JWT token from localStorage, auto-redirects to `/login` on 401.
 
 ### Frontend: State Management
 
@@ -111,11 +111,30 @@ Before making changes, read:
 - Do not create throwaway files in the repo root; use `/scratch` (gitignored) or `/sandbox`
 - Before finishing a task, remove trial files or move them to `/scratch`
 
+## Role-Based Access
+
+Three tiers enforced via dependency injection in `backend/app/api/deps.py`:
+- **`CurrentUser`** — Any authenticated active employee
+- **`CurrentManager`** — `is_manager=True` OR `is_admin=True`
+- **`CurrentAdmin`** — `is_admin=True` only
+
+| Capability | Employee | Manager | Admin |
+|---|---|---|---|
+| Own timesheets & entries | Yes | Yes | Yes |
+| View all timesheets | - | Yes | Yes |
+| Approve/reject/reopen/delete timesheets | - | Yes | Yes |
+| Reports & exports | - | Yes | Yes |
+| Manage employees, clients, service types, locations, pay periods | - | - | Yes |
+
+Frontend enforces via `ProtectedRoute`, `ManagerRoute`, `AdminRoute` wrappers in `App.tsx`.
+
 ## Authentication
 
 - JWT-based via `POST /api/auth/login` (OAuth2 password form)
 - Token in `Authorization: Bearer <token>` header
 - Default admin: `admin@myhours.local` / `admin123`
+- Password change: `POST /api/auth/change-password`
+- Password reset: `POST /api/auth/request-reset` + `POST /api/auth/reset-password`
 
 ## API Endpoints (Key)
 
@@ -134,7 +153,26 @@ Before making changes, read:
 - `GET /api/reports/hours-by-employee?format=csv` - Hours summary
 - `GET /api/reports/hours-by-job-code?format=csv` - Hours by job code
 
-## Reusable Components
+### Admin CRUD (Admin only)
+Standard REST pattern for each resource — `GET` (list), `GET /{id}`, `POST`, `PATCH /{id}`, `DELETE /{id}`:
+- `/api/employees` — Employee management
+- `/api/clients` — Client management
+- `/api/service-types` — Service type management
+- `/api/locations` — Location management (nested: `/api/locations/{id}/job-codes`)
+- `/api/pay-periods` — Pay period management (extra: `POST /generate`, `POST /{id}/close`)
+
+## Frontend: Admin Pages
+
+All under `AdminRoute` guard, accessible from Dashboard "Admin Tools" section:
+- `/employees` — `Employees.tsx` — Create, edit, toggle active, assign roles
+- `/clients` — `Clients.tsx` — Create, edit, delete clients
+- `/service-types` — `ServiceTypes.tsx` — Create, edit, delete service types
+- `/locations` — `Locations.tsx` — Client selector → location CRUD → expandable job codes per location
+- `/pay-periods` — `PayPeriods.tsx` — List/filter, create single, generate bulk (A/B staggered), close periods
+
+All follow the same pattern: `useQuery` for listing, `useMutation` for CRUD, inline card-based forms, TanStack Query invalidation on success.
+
+## Frontend: Reusable Components
 
 - **SearchableSelect** (`frontend/src/components/SearchableSelect.tsx`) - Dropdown with search/filter, keyboard navigation (arrows + Enter), Escape to clear/close. Used for large option lists like locations.
 
