@@ -15,6 +15,7 @@ interface EmployeeFormData {
   hourly_rate?: number
   is_manager: boolean
   is_admin: boolean
+  is_active?: boolean
 }
 
 export default function Employees() {

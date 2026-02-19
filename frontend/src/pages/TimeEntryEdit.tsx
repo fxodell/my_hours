@@ -61,7 +61,7 @@ export default function TimeEntryEdit() {
     queryFn: api.getServiceTypes,
   })
 
-  const { register, handleSubmit, watch, setValue, reset, formState: { errors } } = useForm<FormData>({
+  const { register, handleSubmit, watch, reset, formState: { errors } } = useForm<FormData>({
     defaultValues: {
       work_date: '',
       work_mode: 'remote',

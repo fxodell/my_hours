@@ -54,15 +54,31 @@ async def get_current_timesheet(
     current_user: CurrentUser,
 ) -> Timesheet:
     """Get or create the current pay period's timesheet for the logged-in user."""
-    # Find the current open pay period for this user's group
+    from datetime import date as date_type
+    today = date_type.today()
+
+    # Find the open pay period that contains today's date
     result = await db.execute(
         select(PayPeriod)
         .where(PayPeriod.period_group == current_user.pay_period_group)
         .where(PayPeriod.status == "open")
-        .order_by(PayPeriod.start_date.desc())
+        .where(PayPeriod.start_date <= today)
+        .where(PayPeriod.end_date >= today)
         .limit(1)
     )
     pay_period = result.scalar_one_or_none()
+
+    # Fallback: nearest upcoming open pay period
+    if not pay_period:
+        result = await db.execute(
+            select(PayPeriod)
+            .where(PayPeriod.period_group == current_user.pay_period_group)
+            .where(PayPeriod.status == "open")
+            .where(PayPeriod.start_date >= today)
+            .order_by(PayPeriod.start_date.asc())
+            .limit(1)
+        )
+        pay_period = result.scalar_one_or_none()
 
     if not pay_period:
         raise HTTPException(

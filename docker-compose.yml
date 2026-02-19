@@ -30,8 +30,14 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-myhours}:${POSTGRES_PASSWORD:-myhours_secret}@db:5432/${POSTGRES_DB:-myhours}
+      DATABASE_URL_SYNC: postgresql+psycopg2://${POSTGRES_USER:-myhours}:${POSTGRES_PASSWORD:-myhours_secret}@db:5432/${POSTGRES_DB:-myhours}
       SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-480}
+    volumes:
+      - ./backend/app:/app/app
+      - ./backend/scripts:/app/scripts
+      - ./backend/migrations:/app/migrations
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     depends_on:
       db:
         condition: service_healthy

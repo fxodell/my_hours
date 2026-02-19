@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, parseISO } from 'date-fns'
 import * as api from '../services/api'
-import type { Timesheet, TimeEntry, User } from '../types'
+import type { TimeEntry } from '../types'
 
 export default function Approvals() {
   const queryClient = useQueryClient()

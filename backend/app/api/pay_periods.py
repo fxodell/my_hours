@@ -39,14 +39,30 @@ async def get_current_pay_period(
     current_user: CurrentUser,
 ) -> PayPeriod:
     """Get the current open pay period for the logged-in user's pay period group."""
+    today = date.today()
+
+    # First try to find an open pay period that contains today's date
     result = await db.execute(
         select(PayPeriod)
         .where(PayPeriod.period_group == current_user.pay_period_group)
         .where(PayPeriod.status == "open")
-        .order_by(PayPeriod.start_date.desc())
+        .where(PayPeriod.start_date <= today)
+        .where(PayPeriod.end_date >= today)
         .limit(1)
     )
     pay_period = result.scalar_one_or_none()
+
+    # Fallback: find the nearest upcoming open pay period
+    if not pay_period:
+        result = await db.execute(
+            select(PayPeriod)
+            .where(PayPeriod.period_group == current_user.pay_period_group)
+            .where(PayPeriod.status == "open")
+            .where(PayPeriod.start_date >= today)
+            .order_by(PayPeriod.start_date.asc())
+            .limit(1)
+        )
+        pay_period = result.scalar_one_or_none()
 
     if not pay_period:
         raise HTTPException(

@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, parseISO } from 'date-fns'
 import * as api from '../services/api'
-import type { TimeEntry, PTOEntry } from '../types'
+import type { TimeEntry } from '../types'
 
 const statusColors = {
   draft: 'bg-gray-100 text-gray-800',
