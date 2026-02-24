@@ -60,9 +60,8 @@ class TimeEntry(Base, UUIDMixin, TimestampMixin):
     is_billable: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_overtime: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
-    # Reimbursements and bonuses (from original Excel)
+    # Reimbursements (from original Excel)
     vehicle_reimbursement_tier: Mapped[Optional[str]] = mapped_column(String(50))
-    bonus_eligible: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # External sync tracking
     quickbooks_time_activity_id: Mapped[Optional[str]] = mapped_column(String(50))

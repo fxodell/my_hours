@@ -22,7 +22,6 @@ class TimeEntryBase(BaseSchema):
     is_billable: bool = True
     is_overtime: bool = False
     vehicle_reimbursement_tier: Optional[str] = None
-    bonus_eligible: bool = False
 
     @field_validator("hours")
     @classmethod
@@ -53,7 +52,6 @@ class TimeEntryCreate(BaseSchema):
     is_billable: bool = True
     is_overtime: bool = False
     vehicle_reimbursement_tier: Optional[str] = None
-    bonus_eligible: bool = False
 
     @field_validator("hours")
     @classmethod
@@ -84,7 +82,6 @@ class TimeEntryUpdate(BaseModel):
     is_billable: Optional[bool] = None
     is_overtime: Optional[bool] = None
     vehicle_reimbursement_tier: Optional[str] = None
-    bonus_eligible: Optional[bool] = None
 
 
 class TimeEntryResponse(TimeEntryBase, TimestampSchema):

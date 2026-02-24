@@ -81,7 +81,6 @@ export interface TimeEntry {
   is_billable: boolean
   is_overtime: boolean
   vehicle_reimbursement_tier: string | null
-  bonus_eligible: boolean
   created_at: string
   updated_at: string
 }
@@ -109,5 +108,4 @@ export interface TimeEntryCreate {
   is_billable?: boolean
   is_overtime?: boolean
   vehicle_reimbursement_tier?: string
-  bonus_eligible?: boolean
 }

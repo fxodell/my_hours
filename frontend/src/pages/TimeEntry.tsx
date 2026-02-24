@@ -31,7 +31,6 @@ interface FormData {
   hours: number
   description: string
   vehicle_reimbursement_tier: string
-  bonus_eligible: boolean
 }
 
 export default function TimeEntry() {
@@ -69,7 +68,6 @@ export default function TimeEntry() {
       hours: 8,
       description: '',
       vehicle_reimbursement_tier: '',
-      bonus_eligible: false,
       client_id: '',
       location_id: '',
       job_code_id: '',
@@ -132,7 +130,6 @@ export default function TimeEntry() {
       hours: data.hours,
       description: data.description || undefined,
       vehicle_reimbursement_tier: data.vehicle_reimbursement_tier || undefined,
-      bonus_eligible: data.bonus_eligible,
       is_billable: true,
     }
 
@@ -357,20 +354,6 @@ export default function TimeEntry() {
             </select>
           </div>
         )}
-
-        {/* Bonus Eligible */}
-        <div className="flex items-center gap-3">
-          <input
-            type="checkbox"
-            id="bonus_eligible"
-            {...register('bonus_eligible')}
-            className="w-5 h-5 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-            disabled={!canEdit}
-          />
-          <label htmlFor="bonus_eligible" className="text-gray-700">
-            Bonus eligible ($5/billable hour - Data clients only)
-          </label>
-        </div>
 
         {/* Submit */}
         <button

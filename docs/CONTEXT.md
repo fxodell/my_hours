@@ -69,6 +69,7 @@ Time and PTO entry editability:
 - Adding a time or PTO entry to a `rejected` timesheet auto-resets it to `draft`
 - Frontend entry forms (`TimeEntry.tsx`, `PTOEntry.tsx`) accept a `?timesheet=<id>` query parameter to target a specific timesheet; `TimesheetDetail.tsx` passes this when linking to "Add Time" / "Add PTO"
 - Shared editability helpers in `frontend/src/timesheetStatus.ts`: `isTimesheetEditable()`, `isTimesheetReadOnly()`, `getEntryDateMax()`
+- The `bonus_eligible` time-entry field has been removed from UI and API payloads; database schema no longer stores per-entry bonus eligibility
 
 Access model:
 - **Employee:** own timesheets and entries

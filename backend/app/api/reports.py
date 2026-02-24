@@ -172,7 +172,6 @@ async def billing_report(
             "hours": float(entry.hours),
             "work_mode": entry.work_mode,
             "description": entry.description or "",
-            "bonus_eligible": entry.bonus_eligible,
         })
 
     if format == "json":
@@ -183,8 +182,6 @@ async def billing_report(
             if client not in summary:
                 summary[client] = {"hours": 0, "bonus_hours": 0}
             summary[client]["hours"] += row["hours"]
-            if row["bonus_eligible"]:
-                summary[client]["bonus_hours"] += row["hours"]
 
         return {
             "report": "billing",
@@ -219,11 +216,10 @@ async def billing_report(
             for client in clients_seen:
                 client_rows = [r for r in report_data if r["client"] == client]
                 total = sum(r["hours"] for r in client_rows)
-                bonus = sum(r["hours"] for r in client_rows if r["bonus_eligible"])
                 summary_data.append({
                     "Client": client,
                     "Total Hours": total,
-                    "Bonus Hours": bonus,
+                    "Bonus Hours": 0,
                 })
 
             pd.DataFrame(summary_data).to_excel(
@@ -464,9 +460,6 @@ async def engage_payroll_export(
             else:
                 regular_hours += hours
 
-            if entry.bonus_eligible:
-                bonus_hours += hours
-
             # Parse vehicle reimbursement tier
             if entry.vehicle_reimbursement_tier:
                 tier = entry.vehicle_reimbursement_tier
@@ -485,7 +478,7 @@ async def engage_payroll_export(
         pto_holiday = sum(float(p.hours) for p in ts.pto_entries if p.pto_type == "holiday")
         pto_other = sum(float(p.hours) for p in ts.pto_entries if p.pto_type == "other")
 
-        # Bonus calculation ($5/billable hour for Data clients)
+        # Bonus is deprecated; kept for export schema compatibility
         bonus_amount = bonus_hours * 5
 
         engage_data.append({
