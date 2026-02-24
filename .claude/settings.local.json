@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker compose:*)",
+      "Bash(ss:*)",
+      "Bash(sudo lsof:*)",
+      "Bash(sudo nginx:*)",
+      "Bash(sudo docker compose cp:*)",
+      "Bash(sudo systemctl reload:*)",
+      "Bash(curl:*)",
+      "Bash(npm install:*)",
+      "Bash(npm run build:*)",
+      "Bash(sudo cp:*)",
+      "Bash(host:*)",
+      "Bash(git push:*)"
+    ]
+  }
+}
