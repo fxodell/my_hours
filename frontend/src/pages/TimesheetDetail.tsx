@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, parseISO } from 'date-fns'
 import * as api from '../services/api'
 import type { TimeEntry } from '../types'
+import { isTimesheetEditable, isTimesheetReadOnly } from '../timesheetStatus'
 
 const statusColors = {
   draft: 'bg-gray-100 text-gray-800',
@@ -84,7 +85,7 @@ export default function TimesheetDetail() {
   const totalWorkHours = entries?.reduce((sum, entry) => sum + Number(entry.hours), 0) || 0
   const totalPTOHours = ptoEntries?.reduce((sum, entry) => sum + Number(entry.hours), 0) || 0
   const totalHours = totalWorkHours + totalPTOHours
-  const canEdit = timesheet?.status === 'draft' || timesheet?.status === 'rejected'
+  const canEdit = isTimesheetEditable(timesheet?.status)
   const canSubmit = canEdit && ((entries?.length ?? 0) > 0 || (ptoEntries?.length ?? 0) > 0)
 
   // Group entries by date
@@ -143,6 +144,14 @@ export default function TimesheetDetail() {
         </div>
       )}
 
+      {isTimesheetReadOnly(timesheet.status) && (
+        <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded-lg text-sm">
+          {timesheet.status === 'submitted'
+            ? 'This timesheet has been submitted and is pending approval.'
+            : 'This timesheet has been approved and is read-only.'}
+        </div>
+      )}
+
       {/* Summary Card */}
       <div className="card p-4">
         <div className="text-center mb-2">
@@ -161,10 +170,10 @@ export default function TimesheetDetail() {
       <div className="flex gap-2">
         {canEdit && (
           <>
-            <Link to="/entry" className="btn-primary flex-1">
+            <Link to={`/entry?timesheet=${id}`} className="btn-primary flex-1">
               Add Time
             </Link>
-            <Link to="/pto" className="btn-secondary flex-1">
+            <Link to={`/pto?timesheet=${id}`} className="btn-secondary flex-1">
               Add PTO
             </Link>
           </>
@@ -184,9 +193,11 @@ export default function TimesheetDetail() {
       {entries?.length === 0 ? (
         <div className="text-center py-8 text-gray-500">
           <p>No time entries yet.</p>
-          <Link to="/entry" className="btn-primary mt-4 inline-block">
-            Add Your First Entry
-          </Link>
+          {canEdit && (
+            <Link to={`/entry?timesheet=${id}`} className="btn-primary mt-4 inline-block">
+              Add Your First Entry
+            </Link>
+          )}
         </div>
       ) : (
         <div className="space-y-4">

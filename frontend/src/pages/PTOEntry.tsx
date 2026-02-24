@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { format } from 'date-fns'
 import * as api from '../services/api'
+import { getEntryDateMax, isTimesheetEditable, isTimesheetReadOnly } from '../timesheetStatus'
 
 const PTO_TYPES = [
   { value: 'personal', label: 'Personal Time Off' },
@@ -24,11 +25,19 @@ interface FormData {
 export default function PTOEntry() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const [searchParams] = useSearchParams()
+  const timesheetParam = searchParams.get('timesheet')
   const [error, setError] = useState('')
 
   const { data: timesheet } = useQuery({
-    queryKey: ['currentTimesheet'],
-    queryFn: api.getCurrentTimesheet,
+    queryKey: timesheetParam ? ['timesheet', timesheetParam] : ['currentTimesheet'],
+    queryFn: () => timesheetParam ? api.getTimesheet(timesheetParam) : api.getCurrentTimesheet(),
+  })
+
+  const { data: payPeriod } = useQuery({
+    queryKey: ['payPeriod', timesheet?.pay_period_id],
+    queryFn: () => api.getPayPeriod(timesheet!.pay_period_id),
+    enabled: !!timesheet?.pay_period_id,
   })
 
   const { register, handleSubmit, watch, formState: { errors } } = useForm<FormData>({
@@ -58,7 +67,8 @@ export default function PTOEntry() {
     createPTOMutation.mutate(data)
   }
 
-  const canEdit = timesheet?.status === 'draft' || timesheet?.status === 'rejected'
+  const canEdit = isTimesheetEditable(timesheet?.status)
+  const maxPTODate = getEntryDateMax(payPeriod?.end_date)
 
   return (
     <div className="space-y-6">
@@ -72,9 +82,9 @@ export default function PTOEntry() {
         </button>
       </div>
 
-      {!canEdit && (
+      {isTimesheetReadOnly(timesheet?.status) && (
         <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded-lg text-sm">
-          Your timesheet has been submitted and cannot be edited.
+          This timesheet is read-only and cannot be edited.
         </div>
       )}
 
@@ -93,7 +103,14 @@ export default function PTOEntry() {
             {...register('pto_date', { required: 'Date is required' })}
             className="input"
             disabled={!canEdit}
+            min={payPeriod?.start_date}
+            max={maxPTODate}
           />
+          {payPeriod && (
+            <p className="text-gray-500 text-xs mt-1">
+              Valid dates: {payPeriod.start_date} to {maxPTODate ?? payPeriod.end_date}
+            </p>
+          )}
           {errors.pto_date && (
             <p className="text-red-500 text-sm mt-1">{errors.pto_date.message}</p>
           )}

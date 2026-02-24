@@ -420,7 +420,7 @@ async def create_time_entry(
 
     if timesheet.status not in ("draft", "rejected"):
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Cannot add entries to timesheet with status '{timesheet.status}'",
         )
 
@@ -477,7 +477,7 @@ async def update_time_entry(
 
     if timesheet.status not in ("draft", "rejected"):
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Cannot edit entries in timesheet with status '{timesheet.status}'",
         )
 
@@ -540,7 +540,7 @@ async def delete_time_entry(
 
     if timesheet.status not in ("draft", "rejected"):
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Cannot delete entries from timesheet with status '{timesheet.status}'",
         )
 
@@ -606,14 +606,20 @@ async def create_pto_entry(
     db: DB,
     current_user: CurrentUser,
 ) -> PTOEntry:
-    result = await db.execute(select(Timesheet).where(Timesheet.id == timesheet_id))
-    timesheet = result.scalar_one_or_none()
+    result = await db.execute(
+        select(Timesheet, PayPeriod)
+        .join(PayPeriod, Timesheet.pay_period_id == PayPeriod.id)
+        .where(Timesheet.id == timesheet_id)
+    )
+    row = result.one_or_none()
 
-    if not timesheet:
+    if not row:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Timesheet not found",
         )
+
+    timesheet, pay_period = row
 
     if timesheet.employee_id != current_user.id:
         raise HTTPException(
@@ -627,10 +633,23 @@ async def create_pto_entry(
             detail=f"Cannot add PTO to timesheet with status '{timesheet.status}'",
         )
 
+    # Validate pto_date is within pay period
+    if entry_data.pto_date < pay_period.start_date or entry_data.pto_date > pay_period.end_date:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"PTO date must be within pay period ({pay_period.start_date} to {pay_period.end_date})",
+        )
+
     entry = PTOEntry(timesheet_id=timesheet_id, **entry_data.model_dump())
     db.add(entry)
     await db.commit()
     await db.refresh(entry)
+
+    # Reset timesheet to draft if it was rejected
+    if timesheet.status == "rejected":
+        timesheet.status = "draft"
+        timesheet.rejection_reason = None
+        await db.commit()
 
     return entry
 
@@ -643,14 +662,20 @@ async def update_pto_entry(
     db: DB,
     current_user: CurrentUser,
 ) -> PTOEntry:
-    result = await db.execute(select(Timesheet).where(Timesheet.id == timesheet_id))
-    timesheet = result.scalar_one_or_none()
+    result = await db.execute(
+        select(Timesheet, PayPeriod)
+        .join(PayPeriod, Timesheet.pay_period_id == PayPeriod.id)
+        .where(Timesheet.id == timesheet_id)
+    )
+    row = result.one_or_none()
 
-    if not timesheet:
+    if not row:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Timesheet not found",
         )
+
+    timesheet, pay_period = row
 
     if timesheet.employee_id != current_user.id:
         raise HTTPException(
@@ -663,6 +688,14 @@ async def update_pto_entry(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Cannot edit PTO in timesheet with status '{timesheet.status}'",
         )
+
+    # Validate pto_date if provided
+    if entry_data.pto_date is not None:
+        if entry_data.pto_date < pay_period.start_date or entry_data.pto_date > pay_period.end_date:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"PTO date must be within pay period ({pay_period.start_date} to {pay_period.end_date})",
+            )
 
     result = await db.execute(
         select(PTOEntry)

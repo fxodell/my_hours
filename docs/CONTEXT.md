@@ -62,6 +62,11 @@ Timesheet lifecycle:
 3. Manager/admin approves (`approved`) or rejects (`rejected`) with reason
 4. Manager/admin may reopen submitted/approved timesheets back to `draft`
 
+Time and PTO entry editability:
+- `draft` and `rejected` timesheets are editable (add/update/delete entries)
+- `submitted` and `approved` timesheets are read-only in the employee UI
+- Time entry dates can be entered for any day within the active pay period bounds (past dates included), while dates outside the pay period are rejected by backend validation
+
 Access model:
 - **Employee:** own timesheets and entries
 - **Manager:** approvals, reports, broader timesheet visibility

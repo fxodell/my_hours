@@ -5,6 +5,7 @@ import { useForm } from 'react-hook-form'
 import * as api from '../services/api'
 import type { TimeEntryCreate } from '../types'
 import SearchableSelect from '../components/SearchableSelect'
+import { getEntryDateMax, isTimesheetEditable, isTimesheetReadOnly } from '../timesheetStatus'
 
 const HOUR_OPTIONS = [
   0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8,
@@ -48,6 +49,11 @@ export default function TimeEntryEdit() {
     queryKey: ['timeEntries', timesheetId],
     queryFn: () => api.getTimeEntries(timesheetId!),
     enabled: !!timesheetId,
+  })
+
+  const { data: payPeriod } = useQuery({
+    queryKey: ['currentPayPeriod'],
+    queryFn: api.getCurrentPayPeriod,
   })
 
   const entry = entries?.find(e => e.id === entryId)
@@ -143,7 +149,8 @@ export default function TimeEntryEdit() {
     updateEntryMutation.mutate(updateData)
   }
 
-  const canEdit = timesheet?.status === 'draft' || timesheet?.status === 'rejected'
+  const canEdit = isTimesheetEditable(timesheet?.status)
+  const maxWorkDate = getEntryDateMax(payPeriod?.end_date)
 
   if (!entry) {
     return (
@@ -165,9 +172,9 @@ export default function TimeEntryEdit() {
         </button>
       </div>
 
-      {!canEdit && (
+      {isTimesheetReadOnly(timesheet?.status) && (
         <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded-lg text-sm">
-          Your timesheet has been submitted and cannot be edited.
+          This timesheet is read-only and cannot be edited.
         </div>
       )}
 
@@ -186,7 +193,14 @@ export default function TimeEntryEdit() {
             {...register('work_date', { required: 'Date is required' })}
             className="input"
             disabled={!canEdit}
+            min={payPeriod?.start_date}
+            max={maxWorkDate}
           />
+          {payPeriod && (
+            <p className="text-gray-500 text-xs mt-1">
+              Valid dates: {payPeriod.start_date} to {maxWorkDate ?? payPeriod.end_date}
+            </p>
+          )}
           {errors.work_date && (
             <p className="text-red-500 text-sm mt-1">{errors.work_date.message}</p>
           )}

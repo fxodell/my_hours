@@ -127,6 +127,10 @@ export async function getCurrentPayPeriod(): Promise<PayPeriod> {
   return fetchApi<PayPeriod>('/pay-periods/current')
 }
 
+export async function getPayPeriod(id: string): Promise<PayPeriod> {
+  return fetchApi<PayPeriod>(`/pay-periods/${id}`)
+}
+
 export async function getPayPeriods(limit = 10): Promise<PayPeriod[]> {
   return fetchApi<PayPeriod[]>(`/pay-periods?limit=${limit}`)
 }

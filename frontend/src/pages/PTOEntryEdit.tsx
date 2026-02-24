@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import * as api from '../services/api'
+import { getEntryDateMax, isTimesheetEditable, isTimesheetReadOnly } from '../timesheetStatus'
 
 const PTO_TYPES = [
   { value: 'personal', label: 'Personal Time Off' },
@@ -30,6 +31,12 @@ export default function PTOEntryEdit() {
     queryKey: ['timesheet', timesheetId],
     queryFn: () => api.getTimesheet(timesheetId!),
     enabled: !!timesheetId,
+  })
+
+  const { data: payPeriod } = useQuery({
+    queryKey: ['payPeriod', timesheet?.pay_period_id],
+    queryFn: () => api.getPayPeriod(timesheet!.pay_period_id),
+    enabled: !!timesheet?.pay_period_id,
   })
 
   const { data: ptoEntries } = useQuery({
@@ -79,7 +86,8 @@ export default function PTOEntryEdit() {
     updatePTOMutation.mutate(data)
   }
 
-  const canEdit = timesheet?.status === 'draft' || timesheet?.status === 'rejected'
+  const canEdit = isTimesheetEditable(timesheet?.status)
+  const maxPTODate = getEntryDateMax(payPeriod?.end_date)
 
   if (!entry && ptoEntries) {
     return (
@@ -104,9 +112,9 @@ export default function PTOEntryEdit() {
         </button>
       </div>
 
-      {!canEdit && (
+      {isTimesheetReadOnly(timesheet?.status) && (
         <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded-lg text-sm">
-          Your timesheet has been submitted and cannot be edited.
+          This timesheet is read-only and cannot be edited.
         </div>
       )}
 
@@ -125,7 +133,14 @@ export default function PTOEntryEdit() {
             {...register('pto_date', { required: 'Date is required' })}
             className="input"
             disabled={!canEdit}
+            min={payPeriod?.start_date}
+            max={maxPTODate}
           />
+          {payPeriod && (
+            <p className="text-gray-500 text-xs mt-1">
+              Valid dates: {payPeriod.start_date} to {maxPTODate ?? payPeriod.end_date}
+            </p>
+          )}
           {errors.pto_date && (
             <p className="text-red-500 text-sm mt-1">{errors.pto_date.message}</p>
           )}
