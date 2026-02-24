@@ -66,12 +66,34 @@ Vite dev server proxies `/api/*` requests to `http://localhost:8002` (see `front
 
 Uses TanStack Query for server state. Auth state is in React Context (`frontend/src/contexts/AuthContext.tsx`). Forms use react-hook-form.
 
+### Frontend: Timesheet Editability Pattern
+
+Shared helpers in `frontend/src/timesheetStatus.ts` control form behavior across all entry pages:
+- `isTimesheetEditable(status)` — returns `true` for `draft` or `rejected`
+- `isTimesheetReadOnly(status)` — returns `true` for `submitted` or `approved`
+- `getEntryDateMax(endDate)` — returns `min(today, endDate)` to prevent future-dated entries
+
+All entry form pages (`TimeEntry.tsx`, `TimeEntryEdit.tsx`, `PTOEntry.tsx`, `PTOEntryEdit.tsx`) use `disabled={!canEdit}` on inputs and show a yellow read-only banner when the timesheet is not editable.
+
+### Frontend: Entry Form Timesheet Targeting
+
+`TimeEntry.tsx` and `PTOEntry.tsx` accept an optional `?timesheet=<id>` query parameter. When present, entries are created against that specific timesheet; otherwise they default to `getCurrentTimesheet()`. `TimesheetDetail.tsx` passes this param in its "Add Time" and "Add PTO" links so entries target the correct timesheet.
+
+### Frontend: Cascading Select Pattern
+
+Entry forms use a Client → Location → Job Code cascade:
+1. User selects Client → triggers Location query (`enabled: !!selectedClientId`)
+2. User selects Location → triggers Job Code query (`enabled: !!selectedLocationId`)
+3. Changing a parent resets dependent fields via `useEffect` + `setValue`
+
 ### Test Infrastructure
 
 Tests use **in-memory SQLite** (aiosqlite) instead of PostgreSQL. Key fixtures in `backend/tests/conftest.py`:
 - `client` - AsyncClient with ASGI transport, DB dependency override
 - `test_user` / `test_manager` - Pre-created employees
 - `auth_headers` / `manager_auth_headers` - JWT auth headers for test users
+
+**Known issue:** The engine fixture is session-scoped but `test_user`/`test_manager` fixtures commit data, so tests that share these fixtures can fail when run together due to unique constraint violations. Run individual test files or functions in isolation if needed.
 
 ## Data Model
 
@@ -91,6 +113,8 @@ Client -> Location -> JobCode (hierarchical). TimeEntry references client, locat
 
 ### Timesheet Workflow
 `draft` -> `submitted` -> `approved` or `rejected` (rejected returns to editable, can resubmit). Managers can reopen approved/submitted timesheets back to draft.
+
+Backend enforces editability: time entry and PTO entry create/update/delete endpoints reject mutations when timesheet status is not `draft` or `rejected`. Both time entry and PTO entry dates are validated against pay period bounds.
 
 ### Pay Period Staggering
 Group A and Group B employees are on alternating 2-week cycles, spreading payroll processing across weeks.
@@ -148,10 +172,11 @@ Frontend enforces via `ProtectedRoute`, `ManagerRoute`, `AdminRoute` wrappers in
 - `DELETE /api/timesheets/{id}` - Delete timesheet (manager/admin only)
 
 ### Reports (Manager only)
-- `GET /api/reports/payroll?format=excel` - Payroll export
-- `GET /api/reports/billing?format=excel` - Billing by client
+- `GET /api/reports/payroll?format=csv` - Payroll export
+- `GET /api/reports/billing?format=csv` - Billing by client
 - `GET /api/reports/hours-by-employee?format=csv` - Hours summary
 - `GET /api/reports/hours-by-job-code?format=csv` - Hours by job code
+- `GET /api/reports/engage-export?pay_period_id=<uuid>` - Engage payroll system export
 
 ### Admin CRUD (Admin only)
 Standard REST pattern for each resource — `GET` (list), `GET /{id}`, `POST`, `PATCH /{id}`, `DELETE /{id}`:
@@ -160,17 +185,6 @@ Standard REST pattern for each resource — `GET` (list), `GET /{id}`, `POST`, `
 - `/api/service-types` — Service type management
 - `/api/locations` — Location management (nested: `/api/locations/{id}/job-codes`)
 - `/api/pay-periods` — Pay period management (extra: `POST /generate`, `POST /{id}/close`)
-
-## Frontend: Admin Pages
-
-All under `AdminRoute` guard, accessible from Dashboard "Admin Tools" section:
-- `/employees` — `Employees.tsx` — Create, edit, toggle active, assign roles
-- `/clients` — `Clients.tsx` — Create, edit, delete clients
-- `/service-types` — `ServiceTypes.tsx` — Create, edit, delete service types
-- `/locations` — `Locations.tsx` — Client selector → location CRUD → expandable job codes per location
-- `/pay-periods` — `PayPeriods.tsx` — List/filter, create single, generate bulk (A/B staggered), close periods
-
-All follow the same pattern: `useQuery` for listing, `useMutation` for CRUD, inline card-based forms, TanStack Query invalidation on success.
 
 ## Frontend: Reusable Components
 
@@ -185,7 +199,13 @@ All follow the same pattern: `useQuery` for listing, `useMutation` for CRUD, inl
 ### Production (GCE VM at myhours.nfmconsulting.com)
 - **Host nginx** serves static frontend from `/var/www/html` and proxies `/api/` to backend container on port 8000
 - SSL via Let's Encrypt (certbot)
-- Backend runs in Docker with volume mounts for live code reload
+- Backend runs in Docker with volume mounts (`app/`, `migrations/`, `scripts/`) for live code reload via `--reload`
 - Frontend deploy: `cd frontend && npm run build && sudo cp -r dist/* /var/www/html/`
 - Backend `.env` from `.env.example`; migrations: `docker compose exec backend alembic upgrade head`
 - Import locations: `docker compose exec backend python scripts/import_locations.py` (requires `/data` volume with Excel file)
+
+## Known Issues
+
+- Frontend dev proxy targets port `8002` but `make dev` runs backend on port `8000`
+- Docker Compose healthcheck tests `/health` but the actual endpoint is `/api/health`
+- Email notifications are logged in dev mode rather than sent via SMTP

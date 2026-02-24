@@ -64,8 +64,11 @@ Timesheet lifecycle:
 
 Time and PTO entry editability:
 - `draft` and `rejected` timesheets are editable (add/update/delete entries)
-- `submitted` and `approved` timesheets are read-only in the employee UI
-- Time entry dates can be entered for any day within the active pay period bounds (past dates included), while dates outside the pay period are rejected by backend validation
+- `submitted` and `approved` timesheets are read-only in the employee UI; edit/add/delete controls are hidden and a status-specific banner is shown
+- Both time entry and PTO entry dates can be entered for any day within the active pay period bounds (past dates included), while dates outside the pay period are rejected by backend validation
+- Adding a time or PTO entry to a `rejected` timesheet auto-resets it to `draft`
+- Frontend entry forms (`TimeEntry.tsx`, `PTOEntry.tsx`) accept a `?timesheet=<id>` query parameter to target a specific timesheet; `TimesheetDetail.tsx` passes this when linking to "Add Time" / "Add PTO"
+- Shared editability helpers in `frontend/src/timesheetStatus.ts`: `isTimesheetEditable()`, `isTimesheetReadOnly()`, `getEntryDateMax()`
 
 Access model:
 - **Employee:** own timesheets and entries
@@ -90,8 +93,8 @@ Pay period model:
 ## Testing State
 
 - Backend tests currently run against in-memory SQLite (`backend/tests/conftest.py`)
-- Existing tests focus on auth and health smoke paths
-- Integration coverage for end-to-end timesheet/report workflows is still pending
+- Test coverage includes: auth, health, time entry CRUD (past-day, out-of-period, post-submit blocking), PTO entry CRUD (date validation, post-submit blocking)
+- Known issue: session-scoped engine with committed fixtures causes unique constraint failures when running multiple test files together; run individual test files or functions in isolation
 
 ## Known Gaps / Follow-ups
 
