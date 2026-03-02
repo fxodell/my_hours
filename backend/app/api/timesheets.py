@@ -116,6 +116,84 @@ async def get_current_timesheet(
     return timesheet
 
 
+GRACE_PERIOD_DAYS = 7
+
+
+@router.get("/for-period/{pay_period_id}", response_model=TimesheetResponse)
+async def get_timesheet_for_period(
+    pay_period_id: UUID,
+    db: DB,
+    current_user: CurrentUser,
+) -> Timesheet:
+    """Get or create a timesheet for a specific pay period.
+
+    Allows open periods within 45 days, and closed periods still within
+    the grace window (7 days after end_date) for late entries.
+    Processed periods are always rejected.
+    """
+    from datetime import date as date_type, timedelta
+
+    today = date_type.today()
+    cutoff = today - timedelta(days=45)
+
+    result = await db.execute(
+        select(PayPeriod).where(PayPeriod.id == pay_period_id)
+    )
+    pay_period = result.scalar_one_or_none()
+
+    if not pay_period:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Pay period not found",
+        )
+
+    if pay_period.period_group != current_user.pay_period_group:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Pay period does not match your pay period group",
+        )
+
+    if pay_period.status == "processed":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Pay period has been processed and is locked",
+        )
+
+    if pay_period.status == "closed":
+        grace_cutoff = today - timedelta(days=GRACE_PERIOD_DAYS)
+        if pay_period.end_date < grace_cutoff:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Pay period is closed and past the grace period for late entries",
+            )
+
+    if pay_period.end_date < cutoff:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Pay period is too far in the past",
+        )
+
+    # Get or create timesheet
+    result = await db.execute(
+        select(Timesheet)
+        .where(Timesheet.employee_id == current_user.id)
+        .where(Timesheet.pay_period_id == pay_period.id)
+    )
+    timesheet = result.scalar_one_or_none()
+
+    if not timesheet:
+        timesheet = Timesheet(
+            employee_id=current_user.id,
+            pay_period_id=pay_period.id,
+            status="draft",
+        )
+        db.add(timesheet)
+        await db.commit()
+        await db.refresh(timesheet)
+
+    return timesheet
+
+
 @router.get("/{timesheet_id}", response_model=TimesheetResponse)
 async def get_timesheet(
     timesheet_id: UUID,

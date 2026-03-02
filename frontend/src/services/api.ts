@@ -169,9 +169,17 @@ export async function closePayPeriod(id: string): Promise<PayPeriod> {
   return fetchApi<PayPeriod>(`/pay-periods/${id}/close`, { method: 'POST' })
 }
 
+export async function getRecentPayPeriods(): Promise<PayPeriod[]> {
+  return fetchApi<PayPeriod[]>('/pay-periods/recent')
+}
+
 // Timesheets
 export async function getCurrentTimesheet(): Promise<Timesheet> {
   return fetchApi<Timesheet>('/timesheets/current')
+}
+
+export async function getTimesheetForPeriod(payPeriodId: string): Promise<Timesheet> {
+  return fetchApi<Timesheet>(`/timesheets/for-period/${payPeriodId}`)
 }
 
 export async function getTimesheets(params?: { status?: string; employee_id?: string }): Promise<Timesheet[]> {

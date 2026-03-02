@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
-import { format } from 'date-fns'
+import { format, parseISO, differenceInCalendarDays } from 'date-fns'
 import * as api from '../services/api'
 import { getEntryDateMax, isTimesheetEditable, isTimesheetReadOnly } from '../timesheetStatus'
 
@@ -28,10 +28,40 @@ export default function PTOEntry() {
   const [searchParams] = useSearchParams()
   const timesheetParam = searchParams.get('timesheet')
   const [error, setError] = useState('')
+  const [selectedPeriodId, setSelectedPeriodId] = useState<string | null>(null)
 
+  // Fetch recent pay periods when no specific timesheet is targeted
+  const { data: recentPeriods } = useQuery({
+    queryKey: ['recentPayPeriods'],
+    queryFn: api.getRecentPayPeriods,
+    enabled: !timesheetParam,
+  })
+
+  // Determine which period is "current" (contains today)
+  useEffect(() => {
+    if (recentPeriods && recentPeriods.length > 0 && !selectedPeriodId) {
+      const today = format(new Date(), 'yyyy-MM-dd')
+      const current = recentPeriods.find(
+        (pp) => pp.start_date <= today && pp.end_date >= today
+      )
+      setSelectedPeriodId(current?.id ?? recentPeriods[0].id)
+    }
+  }, [recentPeriods, selectedPeriodId])
+
+  // When a specific timesheet is passed, use it directly; otherwise use period-based lookup
   const { data: timesheet } = useQuery({
-    queryKey: timesheetParam ? ['timesheet', timesheetParam] : ['currentTimesheet'],
-    queryFn: () => timesheetParam ? api.getTimesheet(timesheetParam) : api.getCurrentTimesheet(),
+    queryKey: timesheetParam
+      ? ['timesheet', timesheetParam]
+      : selectedPeriodId
+        ? ['timesheetForPeriod', selectedPeriodId]
+        : ['currentTimesheet'],
+    queryFn: () =>
+      timesheetParam
+        ? api.getTimesheet(timesheetParam)
+        : selectedPeriodId
+          ? api.getTimesheetForPeriod(selectedPeriodId)
+          : api.getCurrentTimesheet(),
+    enabled: !!timesheetParam || !!selectedPeriodId,
   })
 
   const { data: payPeriod } = useQuery({
@@ -95,6 +125,56 @@ export default function PTOEntry() {
       )}
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        {/* Pay Period Selector */}
+        {!timesheetParam && recentPeriods && recentPeriods.length > 1 && (
+          <div>
+            <label className="label">Pay Period</label>
+            <div className="grid grid-cols-1 gap-2">
+              {recentPeriods
+                .slice()
+                .sort((a, b) => b.start_date.localeCompare(a.start_date))
+                .map((pp) => {
+                  const today = format(new Date(), 'yyyy-MM-dd')
+                  const isCurrentPeriod = pp.start_date <= today && pp.end_date >= today
+                  const isClosed = pp.status === 'closed'
+                  const graceDaysLeft = isClosed ? 7 - differenceInCalendarDays(new Date(), parseISO(pp.end_date)) : 0
+                  return (
+                    <label
+                      key={pp.id}
+                      className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-colors ${
+                        selectedPeriodId === pp.id
+                          ? 'bg-primary-100 border-primary-500 text-primary-700'
+                          : 'border-gray-300 hover:border-gray-400'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="pay_period"
+                        value={pp.id}
+                        checked={selectedPeriodId === pp.id}
+                        onChange={() => setSelectedPeriodId(pp.id)}
+                        className="sr-only"
+                      />
+                      <span>
+                        {format(parseISO(pp.start_date), 'MMM d')} - {format(parseISO(pp.end_date), 'MMM d, yyyy')}
+                      </span>
+                      <span className="flex gap-1">
+                        {isCurrentPeriod && (
+                          <span className="text-xs bg-primary-200 text-primary-800 px-2 py-0.5 rounded-full">Current</span>
+                        )}
+                        {isClosed && graceDaysLeft > 0 && (
+                          <span className="text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">
+                            {graceDaysLeft}d left
+                          </span>
+                        )}
+                      </span>
+                    </label>
+                  )
+                })}
+            </div>
+          </div>
+        )}
+
         {/* Date */}
         <div>
           <label className="label">Date</label>

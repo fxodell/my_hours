@@ -23,7 +23,29 @@ export default function Dashboard() {
     enabled: !!timesheet?.id,
   })
 
+  // Fetch recent pay periods to find past timesheets that may need attention
+  const { data: recentPeriods } = useQuery({
+    queryKey: ['recentPayPeriods'],
+    queryFn: api.getRecentPayPeriods,
+  })
+
+  // Fetch all user timesheets to find draft/rejected ones from past periods
+  const { data: allTimesheets } = useQuery({
+    queryKey: ['timesheets'],
+    queryFn: () => api.getTimesheets(),
+  })
+
   const totalHours = entries?.reduce((sum, entry) => sum + Number(entry.hours), 0) || 0
+
+  // Find timesheets from past periods that are still editable
+  const recentPeriodIds = new Set(recentPeriods?.map((pp) => pp.id) || [])
+  const pastEditableTimesheets = allTimesheets?.filter(
+    (ts) =>
+      ts.id !== timesheet?.id &&
+      recentPeriodIds.has(ts.pay_period_id) &&
+      (ts.status === 'draft' || ts.status === 'rejected')
+  ) || []
+  const pastPeriodMap = new Map(recentPeriods?.map((pp) => [pp.id, pp]) || [])
 
   const statusColors = {
     draft: 'bg-gray-100 text-gray-800',
@@ -89,6 +111,43 @@ export default function Dashboard() {
           </>
         )}
       </div>
+
+      {/* Past Editable Timesheets */}
+      {pastEditableTimesheets.length > 0 && (
+        <div className="card p-4">
+          <h3 className="font-semibold text-gray-900 mb-3">Past Timesheets Needing Attention</h3>
+          <div className="space-y-2">
+            {pastEditableTimesheets.map((ts) => {
+              const pp = pastPeriodMap.get(ts.pay_period_id)
+              return (
+                <Link
+                  key={ts.id}
+                  to={`/timesheets/${ts.id}`}
+                  className="flex items-center justify-between p-3 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors"
+                >
+                  <div>
+                    <p className="font-medium text-gray-900 text-sm">
+                      {pp
+                        ? `${format(parseISO(pp.start_date), 'MMM d')} - ${format(parseISO(pp.end_date), 'MMM d, yyyy')}`
+                        : 'Past Period'}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {ts.status === 'rejected' ? 'Needs revision' : 'Draft - not yet submitted'}
+                    </p>
+                  </div>
+                  <span
+                    className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                      statusColors[ts.status]
+                    }`}
+                  >
+                    {ts.status.charAt(0).toUpperCase() + ts.status.slice(1)}
+                  </span>
+                </Link>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Quick Actions */}
       <div className="card p-4">

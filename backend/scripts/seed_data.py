@@ -124,10 +124,10 @@ def seed_admin_user(session):
 
 def seed_pay_periods(session):
     """Generate initial pay periods for both groups."""
-    # Start from the beginning of the current week
+    # Start from the beginning of the current week (Monday)
     today = date.today()
-    # Find last Sunday
-    start_date = today - timedelta(days=today.weekday() + 1)
+    # Find last Monday (weekday() returns 0=Mon, 6=Sun)
+    start_date = today - timedelta(days=today.weekday())
 
     for group in ["A", "B"]:
         group_start = start_date if group == "A" else start_date + timedelta(days=7)

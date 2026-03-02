@@ -1,7 +1,7 @@
 from datetime import date, timedelta
 from uuid import UUID
 from fastapi import APIRouter, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, or_, and_
 from sqlalchemy.exc import IntegrityError
 
 from app.models.pay_period import PayPeriod
@@ -71,6 +71,42 @@ async def get_current_pay_period(
         )
 
     return pay_period
+
+
+GRACE_PERIOD_DAYS = 7
+
+
+@router.get("/recent", response_model=list[PayPeriodResponse])
+async def get_recent_pay_periods(
+    db: DB,
+    current_user: CurrentUser,
+) -> list[PayPeriod]:
+    """Get recent pay periods for the user's group.
+
+    Returns open periods within the last 45 days, plus closed periods
+    still within the grace window (7 days after end_date) for late entries.
+    """
+    today = date.today()
+    cutoff = today - timedelta(days=45)
+    grace_cutoff = today - timedelta(days=GRACE_PERIOD_DAYS)
+
+    result = await db.execute(
+        select(PayPeriod)
+        .where(PayPeriod.period_group == current_user.pay_period_group)
+        .where(PayPeriod.start_date <= today)
+        .where(PayPeriod.end_date >= cutoff)
+        .where(
+            or_(
+                PayPeriod.status == "open",
+                and_(
+                    PayPeriod.status == "closed",
+                    PayPeriod.end_date >= grace_cutoff,
+                ),
+            )
+        )
+        .order_by(PayPeriod.start_date.desc())
+    )
+    return list(result.scalars().all())
 
 
 @router.get("/{pay_period_id}", response_model=PayPeriodResponse)
