@@ -16,7 +16,14 @@
       "Bash(cd:*)",
       "Bash(tail:*)",
       "Bash(head:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(grep:*)",
+      "Bash(python:*)",
+      "Bash(python3:*)",
+      "Bash(npx tsc:*)",
+      "Bash(sudo docker:*)",
+      "Bash(sudo:*)"
     ]
   }
 }
