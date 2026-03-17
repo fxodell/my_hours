@@ -123,34 +123,31 @@ def seed_admin_user(session):
 
 
 def seed_pay_periods(session):
-    """Generate initial pay periods for both groups."""
-    # Start from the beginning of the current week (Monday)
+    """Generate initial weekly Sun-Sat pay periods."""
     today = date.today()
-    # Find last Monday (weekday() returns 0=Mon, 6=Sun)
-    start_date = today - timedelta(days=today.weekday())
+    # Find most recent Sunday (weekday(): 0=Mon, 6=Sun)
+    days_since_sunday = (today.weekday() + 1) % 7
+    start_date = today - timedelta(days=days_since_sunday)
 
-    for group in ["A", "B"]:
-        group_start = start_date if group == "A" else start_date + timedelta(days=7)
+    for i in range(8):  # 8 weekly periods
+        period_start = start_date + timedelta(days=7 * i)
+        period_end = period_start + timedelta(days=6)
 
-        for i in range(4):  # 4 pay periods (8 weeks)
-            period_start = group_start + timedelta(days=14 * i)
-            period_end = period_start + timedelta(days=13)
+        existing = (
+            session.query(PayPeriod)
+            .filter_by(start_date=period_start)
+            .first()
+        )
 
-            existing = (
-                session.query(PayPeriod)
-                .filter_by(period_group=group, start_date=period_start)
-                .first()
+        if not existing:
+            pay_period = PayPeriod(
+                period_group="A",
+                start_date=period_start,
+                end_date=period_end,
+                status="open",
             )
-
-            if not existing:
-                pay_period = PayPeriod(
-                    period_group=group,
-                    start_date=period_start,
-                    end_date=period_end,
-                    status="open",
-                )
-                session.add(pay_period)
-                print(f"  Created pay period: Group {group}, {period_start} to {period_end}")
+            session.add(pay_period)
+            print(f"  Created pay period: {period_start} to {period_end}")
 
     session.commit()
 

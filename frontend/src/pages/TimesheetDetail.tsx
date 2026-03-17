@@ -6,6 +6,13 @@ import * as api from '../services/api'
 import type { TimeEntry } from '../types'
 import { isTimesheetEditable, isTimesheetReadOnly } from '../timesheetStatus'
 
+function formatTime(time: string): string {
+  const [h, m] = time.split(':').map(Number)
+  const period = h >= 12 ? 'PM' : 'AM'
+  const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h
+  return `${hour12}:${m.toString().padStart(2, '0')} ${period}`
+}
+
 const statusColors = {
   draft: 'bg-gray-100 text-gray-800',
   submitted: 'bg-yellow-100 text-yellow-800',
@@ -217,6 +224,14 @@ export default function TimesheetDetail() {
                             <span className="font-medium">
                               {entry.hours}h
                             </span>
+                            {entry.start_time && entry.end_time && (
+                              <>
+                                <span className="text-gray-400">•</span>
+                                <span className="text-xs text-gray-500">
+                                  {formatTime(entry.start_time)} - {formatTime(entry.end_time)}
+                                </span>
+                              </>
+                            )}
                             <span className="text-gray-400">•</span>
                             <span className="text-gray-600">
                               {entry.client_id

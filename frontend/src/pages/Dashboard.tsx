@@ -29,23 +29,29 @@ export default function Dashboard() {
     queryFn: api.getRecentPayPeriods,
   })
 
-  // Fetch all user timesheets to find draft/rejected ones from past periods
+  // Fetch only the current user's timesheets to find draft/rejected ones from past periods
   const { data: allTimesheets } = useQuery({
-    queryKey: ['timesheets'],
-    queryFn: () => api.getTimesheets(),
+    queryKey: ['timesheets', 'own', user?.id],
+    queryFn: () => api.getTimesheets({ employee_id: user!.id }),
+    enabled: !!user?.id,
   })
 
   const totalHours = entries?.reduce((sum, entry) => sum + Number(entry.hours), 0) || 0
 
-  // Find timesheets from past periods that are still editable
-  const recentPeriodIds = new Set(recentPeriods?.map((pp) => pp.id) || [])
+  // Find timesheets from current periods that are still editable
+  const today = format(new Date(), 'yyyy-MM-dd')
+  const currentPeriods = recentPeriods?.filter(
+    (pp) => pp.start_date <= today && pp.end_date >= today
+  ) || []
+  const currentPeriodIds = new Set(currentPeriods.map((pp) => pp.id))
   const pastEditableTimesheets = allTimesheets?.filter(
     (ts) =>
       ts.id !== timesheet?.id &&
-      recentPeriodIds.has(ts.pay_period_id) &&
+      ts.employee_id === user?.id &&
+      currentPeriodIds.has(ts.pay_period_id) &&
       (ts.status === 'draft' || ts.status === 'rejected')
   ) || []
-  const pastPeriodMap = new Map(recentPeriods?.map((pp) => [pp.id, pp]) || [])
+  const pastPeriodMap = new Map(currentPeriods.map((pp) => [pp.id, pp]))
 
   const statusColors = {
     draft: 'bg-gray-100 text-gray-800',

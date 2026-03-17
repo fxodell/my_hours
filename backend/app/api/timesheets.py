@@ -68,7 +68,6 @@ async def get_current_timesheet(
     # Find the open pay period that contains today's date
     result = await db.execute(
         select(PayPeriod)
-        .where(PayPeriod.period_group == current_user.pay_period_group)
         .where(PayPeriod.status == "open")
         .where(PayPeriod.start_date <= today)
         .where(PayPeriod.end_date >= today)
@@ -80,7 +79,6 @@ async def get_current_timesheet(
     if not pay_period:
         result = await db.execute(
             select(PayPeriod)
-            .where(PayPeriod.period_group == current_user.pay_period_group)
             .where(PayPeriod.status == "open")
             .where(PayPeriod.start_date >= today)
             .order_by(PayPeriod.start_date.asc())
@@ -91,7 +89,7 @@ async def get_current_timesheet(
     if not pay_period:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="No open pay period found for your pay period group",
+            detail="No open pay period found",
         )
 
     # Check if timesheet exists
@@ -145,12 +143,6 @@ async def get_timesheet_for_period(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Pay period not found",
-        )
-
-    if pay_period.period_group != current_user.pay_period_group:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Pay period does not match your pay period group",
         )
 
     if pay_period.status == "processed":
@@ -490,7 +482,7 @@ async def create_time_entry(
 
     timesheet, pay_period = row
 
-    if timesheet.employee_id != current_user.id:
+    if timesheet.employee_id != current_user.id and not current_user.is_manager and not current_user.is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Can only add entries to your own timesheet",
@@ -547,7 +539,7 @@ async def update_time_entry(
 
     timesheet, pay_period = row
 
-    if timesheet.employee_id != current_user.id:
+    if timesheet.employee_id != current_user.id and not current_user.is_manager and not current_user.is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Can only edit entries in your own timesheet",
@@ -610,7 +602,7 @@ async def delete_time_entry(
             detail="Timesheet not found",
         )
 
-    if timesheet.employee_id != current_user.id:
+    if timesheet.employee_id != current_user.id and not current_user.is_manager and not current_user.is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Can only delete entries from your own timesheet",
@@ -699,7 +691,7 @@ async def create_pto_entry(
 
     timesheet, pay_period = row
 
-    if timesheet.employee_id != current_user.id:
+    if timesheet.employee_id != current_user.id and not current_user.is_manager and not current_user.is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Can only add PTO to your own timesheet",
@@ -755,7 +747,7 @@ async def update_pto_entry(
 
     timesheet, pay_period = row
 
-    if timesheet.employee_id != current_user.id:
+    if timesheet.employee_id != current_user.id and not current_user.is_manager and not current_user.is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Can only edit PTO in your own timesheet",
@@ -817,7 +809,7 @@ async def delete_pto_entry(
             detail="Timesheet not found",
         )
 
-    if timesheet.employee_id != current_user.id:
+    if timesheet.employee_id != current_user.id and not current_user.is_manager and not current_user.is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Can only delete PTO from your own timesheet",

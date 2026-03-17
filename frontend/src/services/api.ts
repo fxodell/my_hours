@@ -182,10 +182,11 @@ export async function getTimesheetForPeriod(payPeriodId: string): Promise<Timesh
   return fetchApi<Timesheet>(`/timesheets/for-period/${payPeriodId}`)
 }
 
-export async function getTimesheets(params?: { status?: string; employee_id?: string }): Promise<Timesheet[]> {
+export async function getTimesheets(params?: { status?: string; employee_id?: string; pay_period_id?: string }): Promise<Timesheet[]> {
   const searchParams = new URLSearchParams()
   if (params?.status) searchParams.append('status_filter', params.status)
   if (params?.employee_id) searchParams.append('employee_id', params.employee_id)
+  if (params?.pay_period_id) searchParams.append('pay_period_id', params.pay_period_id)
 
   const query = searchParams.toString()
   return fetchApi<Timesheet[]>(`/timesheets${query ? `?${query}` : ''}`)

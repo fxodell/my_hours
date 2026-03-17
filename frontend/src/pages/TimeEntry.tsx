@@ -29,8 +29,19 @@ interface FormData {
   service_type_id: string
   work_mode: 'remote' | 'on_site'
   hours: number
+  start_time: string
+  end_time: string
   description: string
   vehicle_reimbursement_tier: string
+}
+
+function calcHoursFromTimes(start: string, end: string): number | null {
+  if (!start || !end) return null
+  const [sh, sm] = start.split(':').map(Number)
+  const [eh, em] = end.split(':').map(Number)
+  const diff = (eh * 60 + em - (sh * 60 + sm)) / 60
+  if (diff <= 0) return null
+  return Math.round(diff * 4) / 4 // round to nearest 0.25
 }
 
 export default function TimeEntry() {
@@ -48,16 +59,18 @@ export default function TimeEntry() {
     enabled: !timesheetParam,
   })
 
-  // Determine which period is "current" (contains today)
+  // Filter to only current periods (containing today)
+  const today = format(new Date(), 'yyyy-MM-dd')
+  const currentPeriods = recentPeriods?.filter(
+    (pp) => pp.start_date <= today && pp.end_date >= today
+  )
+
+  // Auto-select the current period
   useEffect(() => {
-    if (recentPeriods && recentPeriods.length > 0 && !selectedPeriodId) {
-      const today = format(new Date(), 'yyyy-MM-dd')
-      const current = recentPeriods.find(
-        (pp) => pp.start_date <= today && pp.end_date >= today
-      )
-      setSelectedPeriodId(current?.id ?? recentPeriods[0].id)
+    if (currentPeriods && currentPeriods.length > 0 && !selectedPeriodId) {
+      setSelectedPeriodId(currentPeriods[0].id)
     }
-  }, [recentPeriods, selectedPeriodId])
+  }, [currentPeriods, selectedPeriodId])
 
   // When a specific timesheet is passed, use it directly; otherwise use period-based lookup
   const { data: timesheet } = useQuery({
@@ -96,6 +109,8 @@ export default function TimeEntry() {
       work_date: format(new Date(), 'yyyy-MM-dd'),
       work_mode: 'remote',
       hours: 8,
+      start_time: '',
+      end_time: '',
       description: '',
       vehicle_reimbursement_tier: '',
       client_id: '',
@@ -106,8 +121,18 @@ export default function TimeEntry() {
   })
 
   const workMode = watch('work_mode')
+  const startTime = watch('start_time')
+  const endTime = watch('end_time')
   const selectedClientId = watch('client_id')
   const selectedLocationId = watch('location_id')
+
+  // Auto-calculate hours from start/end times
+  useEffect(() => {
+    const calculated = calcHoursFromTimes(startTime, endTime)
+    if (calculated !== null) {
+      setValue('hours', calculated)
+    }
+  }, [startTime, endTime, setValue])
 
   // Fetch locations when client changes
   const { data: locations } = useQuery({
@@ -158,6 +183,8 @@ export default function TimeEntry() {
       service_type_id: data.service_type_id || undefined,
       work_mode: data.work_mode,
       hours: data.hours,
+      start_time: data.start_time || undefined,
+      end_time: data.end_time || undefined,
       description: data.description || undefined,
       vehicle_reimbursement_tier: data.vehicle_reimbursement_tier || undefined,
       is_billable: true,
@@ -195,16 +222,15 @@ export default function TimeEntry() {
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
         {/* Pay Period Selector */}
-        {!timesheetParam && recentPeriods && recentPeriods.length > 1 && (
+        {!timesheetParam && currentPeriods && currentPeriods.length > 1 && (
           <div>
             <label className="label">Pay Period</label>
             <div className="grid grid-cols-1 gap-2">
-              {recentPeriods
+              {currentPeriods
                 .slice()
                 .sort((a, b) => b.start_date.localeCompare(a.start_date))
                 .map((pp) => {
-                  const today = format(new Date(), 'yyyy-MM-dd')
-                  const isCurrentPeriod = pp.start_date <= today && pp.end_date >= today
+                  const isCurrentPeriod = true
                   const isClosed = pp.status === 'closed'
                   const graceDaysLeft = isClosed ? 7 - differenceInCalendarDays(new Date(), parseISO(pp.end_date)) : 0
                   return (
@@ -262,6 +288,37 @@ export default function TimeEntry() {
           )}
           {errors.work_date && (
             <p className="text-red-500 text-sm mt-1">{errors.work_date.message}</p>
+          )}
+        </div>
+
+        {/* Start / End Time */}
+        <div>
+          <label className="label">Start &amp; End Time (optional)</label>
+          <div className="grid grid-cols-2 gap-2">
+            <input
+              type="time"
+              {...register('start_time')}
+              className="input"
+              disabled={!canEdit}
+              placeholder="Start"
+            />
+            <input
+              type="time"
+              {...register('end_time')}
+              className="input"
+              disabled={!canEdit}
+              placeholder="End"
+            />
+          </div>
+          {startTime && endTime && calcHoursFromTimes(startTime, endTime) !== null && (
+            <p className="text-gray-500 text-xs mt-1">
+              Calculated: {calcHoursFromTimes(startTime, endTime)}h
+            </p>
+          )}
+          {startTime && endTime && calcHoursFromTimes(startTime, endTime) === null && (
+            <p className="text-red-500 text-xs mt-1">
+              End time must be after start time
+            </p>
           )}
         </div>
 

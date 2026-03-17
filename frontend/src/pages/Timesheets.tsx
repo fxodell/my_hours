@@ -16,15 +16,31 @@ export default function Timesheets() {
   const { user } = useAuth()
   const queryClient = useQueryClient()
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
+  const isManager = user?.is_manager || user?.is_admin
 
-  const { data: timesheets, isLoading } = useQuery({
-    queryKey: ['timesheets'],
-    queryFn: () => api.getTimesheets(),
+  // Filters
+  const [employeeFilter, setEmployeeFilter] = useState<string>('')
+  const [statusFilter, setStatusFilter] = useState<string>('')
+  const [periodFilter, setPeriodFilter] = useState<string>('')
+
+  const { data: employees } = useQuery({
+    queryKey: ['employees'],
+    queryFn: api.getEmployees,
+    enabled: !!isManager,
   })
 
   const { data: payPeriods } = useQuery({
     queryKey: ['payPeriods'],
     queryFn: () => api.getPayPeriods(20),
+  })
+
+  const { data: timesheets, isLoading } = useQuery({
+    queryKey: ['timesheets', employeeFilter, statusFilter, periodFilter],
+    queryFn: () => api.getTimesheets({
+      employee_id: employeeFilter || undefined,
+      status: statusFilter || undefined,
+      pay_period_id: periodFilter || undefined,
+    }),
   })
 
   const deleteMutation = useMutation({
@@ -43,7 +59,6 @@ export default function Timesheets() {
   })
 
   const payPeriodMap = new Map(payPeriods?.map((pp) => [pp.id, pp]))
-  const isManager = user?.is_manager || user?.is_admin
 
   if (isLoading) {
     return (
@@ -59,12 +74,78 @@ export default function Timesheets() {
         {isManager ? 'All Timesheets' : 'My Timesheets'}
       </h2>
 
+      {/* Filters */}
+      <div className="space-y-2">
+        <div className="grid grid-cols-1 gap-2">
+          {isManager && (
+            <select
+              value={employeeFilter}
+              onChange={(e) => setEmployeeFilter(e.target.value)}
+              className="input text-sm"
+            >
+              <option value="">All Employees</option>
+              {employees
+                ?.slice()
+                .sort((a, b) => `${a.last_name} ${a.first_name}`.localeCompare(`${b.last_name} ${b.first_name}`))
+                .map((emp) => (
+                  <option key={emp.id} value={emp.id}>
+                    {emp.last_name}, {emp.first_name}
+                  </option>
+                ))}
+            </select>
+          )}
+          <div className="grid grid-cols-2 gap-2">
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="input text-sm"
+            >
+              <option value="">All Statuses</option>
+              <option value="draft">Draft</option>
+              <option value="submitted">Submitted</option>
+              <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
+            </select>
+            <select
+              value={periodFilter}
+              onChange={(e) => setPeriodFilter(e.target.value)}
+              className="input text-sm"
+            >
+              <option value="">All Periods</option>
+              {payPeriods
+                ?.slice()
+                .sort((a, b) => b.start_date.localeCompare(a.start_date))
+                .map((pp) => (
+                  <option key={pp.id} value={pp.id}>
+                    {format(parseISO(pp.start_date), 'MMM d')} - {format(parseISO(pp.end_date), 'MMM d, yyyy')}
+                  </option>
+                ))}
+            </select>
+          </div>
+        </div>
+        {(employeeFilter || statusFilter || periodFilter) && (
+          <button
+            onClick={() => { setEmployeeFilter(''); setStatusFilter(''); setPeriodFilter('') }}
+            className="text-sm text-primary-600 hover:text-primary-800"
+          >
+            Clear filters
+          </button>
+        )}
+      </div>
+
+      {/* Results count */}
+      <p className="text-sm text-gray-500">
+        {timesheets?.length ?? 0} timesheet{timesheets?.length !== 1 ? 's' : ''}
+      </p>
+
       {timesheets?.length === 0 ? (
         <div className="text-center py-12 text-gray-500">
-          <p>No timesheets yet.</p>
-          <Link to="/entry" className="btn-primary mt-4 inline-block">
-            Create Your First Entry
-          </Link>
+          <p>No timesheets found.</p>
+          {!employeeFilter && !statusFilter && !periodFilter && (
+            <Link to="/entry" className="btn-primary mt-4 inline-block">
+              Create Your First Entry
+            </Link>
+          )}
         </div>
       ) : (
         <div className="space-y-3">
