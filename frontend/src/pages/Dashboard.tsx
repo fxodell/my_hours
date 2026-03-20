@@ -23,7 +23,35 @@ export default function Dashboard() {
     enabled: !!timesheet?.id,
   })
 
+  // Fetch recent pay periods to find past timesheets that may need attention
+  const { data: recentPeriods } = useQuery({
+    queryKey: ['recentPayPeriods'],
+    queryFn: api.getRecentPayPeriods,
+  })
+
+  // Fetch only the current user's timesheets to find draft/rejected ones from past periods
+  const { data: allTimesheets } = useQuery({
+    queryKey: ['timesheets', 'own', user?.id],
+    queryFn: () => api.getTimesheets({ employee_id: user!.id }),
+    enabled: !!user?.id,
+  })
+
   const totalHours = entries?.reduce((sum, entry) => sum + Number(entry.hours), 0) || 0
+
+  // Find timesheets from current periods that are still editable
+  const today = format(new Date(), 'yyyy-MM-dd')
+  const currentPeriods = recentPeriods?.filter(
+    (pp) => pp.start_date <= today && pp.end_date >= today
+  ) || []
+  const currentPeriodIds = new Set(currentPeriods.map((pp) => pp.id))
+  const pastEditableTimesheets = allTimesheets?.filter(
+    (ts) =>
+      ts.id !== timesheet?.id &&
+      ts.employee_id === user?.id &&
+      currentPeriodIds.has(ts.pay_period_id) &&
+      (ts.status === 'draft' || ts.status === 'rejected')
+  ) || []
+  const pastPeriodMap = new Map(currentPeriods.map((pp) => [pp.id, pp]))
 
   const statusColors = {
     draft: 'bg-gray-100 text-gray-800',
@@ -90,6 +118,43 @@ export default function Dashboard() {
         )}
       </div>
 
+      {/* Past Editable Timesheets */}
+      {pastEditableTimesheets.length > 0 && (
+        <div className="card p-4">
+          <h3 className="font-semibold text-gray-900 mb-3">Past Timesheets Needing Attention</h3>
+          <div className="space-y-2">
+            {pastEditableTimesheets.map((ts) => {
+              const pp = pastPeriodMap.get(ts.pay_period_id)
+              return (
+                <Link
+                  key={ts.id}
+                  to={`/timesheets/${ts.id}`}
+                  className="flex items-center justify-between p-3 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors"
+                >
+                  <div>
+                    <p className="font-medium text-gray-900 text-sm">
+                      {pp
+                        ? `${format(parseISO(pp.start_date), 'MMM d')} - ${format(parseISO(pp.end_date), 'MMM d, yyyy')}`
+                        : 'Past Period'}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {ts.status === 'rejected' ? 'Needs revision' : 'Draft - not yet submitted'}
+                    </p>
+                  </div>
+                  <span
+                    className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                      statusColors[ts.status]
+                    }`}
+                  >
+                    {ts.status.charAt(0).toUpperCase() + ts.status.slice(1)}
+                  </span>
+                </Link>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Quick Actions */}
       <div className="card p-4">
         <h3 className="font-semibold text-gray-900 mb-4">Quick Actions</h3>
@@ -136,6 +201,22 @@ export default function Dashboard() {
             <div>
               <p className="font-medium text-gray-900">Add PTO</p>
               <p className="text-sm text-gray-500">Log time off</p>
+            </div>
+          </Link>
+
+          <Link
+            to="/site-requests"
+            className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors"
+          >
+            <div className="bg-rose-100 p-2 rounded-lg">
+              <svg className="w-5 h-5 text-rose-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            </div>
+            <div>
+              <p className="font-medium text-gray-900">Site Requests</p>
+              <p className="text-sm text-gray-500">Request or manage new sites</p>
             </div>
           </Link>
         </div>

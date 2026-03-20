@@ -35,6 +35,11 @@ export default function Employees() {
     is_admin: false,
   })
   const [error, setError] = useState('')
+  const [resetPasswordTarget, setResetPasswordTarget] = useState<User | null>(null)
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [resetError, setResetError] = useState('')
+  const [resetSuccess, setResetSuccess] = useState('')
 
   const { data: employees, isLoading } = useQuery({
     queryKey: ['employees'],
@@ -63,6 +68,43 @@ export default function Employees() {
       setError(err instanceof Error ? err.message : 'Failed to update employee')
     },
   })
+
+  const resetPasswordMutation = useMutation({
+    mutationFn: ({ id, password }: { id: string; password: string }) =>
+      api.adminResetPassword(id, password),
+    onSuccess: (data) => {
+      setResetSuccess(data.message)
+      setNewPassword('')
+      setConfirmPassword('')
+      setResetError('')
+    },
+    onError: (err) => {
+      setResetError(err instanceof Error ? err.message : 'Failed to reset password')
+    },
+  })
+
+  const handleResetPassword = () => {
+    if (newPassword.length < 6) {
+      setResetError('Password must be at least 6 characters')
+      return
+    }
+    if (newPassword !== confirmPassword) {
+      setResetError('Passwords do not match')
+      return
+    }
+    if (!resetPasswordTarget) return
+    setResetError('')
+    setResetSuccess('')
+    resetPasswordMutation.mutate({ id: resetPasswordTarget.id, password: newPassword })
+  }
+
+  const closeResetModal = () => {
+    setResetPasswordTarget(null)
+    setNewPassword('')
+    setConfirmPassword('')
+    setResetError('')
+    setResetSuccess('')
+  }
 
   const resetForm = () => {
     setShowForm(false)
@@ -320,15 +362,25 @@ export default function Employees() {
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => handleEdit(employee)}
-                  className="p-2 text-gray-500 hover:text-primary-600 hover:bg-gray-100 rounded-lg"
+                  className="p-3 text-gray-500 hover:text-primary-600 hover:bg-gray-100 rounded-lg touch-manipulation"
+                  title="Edit"
                 >
                   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                   </svg>
                 </button>
                 <button
+                  onClick={() => setResetPasswordTarget(employee)}
+                  className="p-3 text-gray-500 hover:text-amber-600 hover:bg-gray-100 rounded-lg touch-manipulation"
+                  title="Reset password"
+                >
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                  </svg>
+                </button>
+                <button
                   onClick={() => toggleActive(employee)}
-                  className={`p-2 rounded-lg ${
+                  className={`p-3 rounded-lg touch-manipulation ${
                     employee.is_active
                       ? 'text-gray-500 hover:text-red-600 hover:bg-gray-100'
                       : 'text-gray-500 hover:text-green-600 hover:bg-gray-100'
@@ -349,6 +401,76 @@ export default function Employees() {
           </div>
         ))}
       </div>
+
+      {/* Reset Password Modal */}
+      {resetPasswordTarget && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl p-6 w-full max-w-md">
+            <h3 className="text-lg font-semibold text-gray-900 mb-1">
+              Reset Password
+            </h3>
+            <p className="text-sm text-gray-500 mb-4">
+              Set a new password for {resetPasswordTarget.full_name}
+            </p>
+
+            {resetError && (
+              <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-sm mb-3">
+                {resetError}
+              </div>
+            )}
+
+            {resetSuccess && (
+              <div className="bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded text-sm mb-3">
+                {resetSuccess}
+              </div>
+            )}
+
+            {!resetSuccess && (
+              <div className="space-y-3 mb-4">
+                <div>
+                  <label className="label">New Password</label>
+                  <input
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    className="input"
+                    minLength={6}
+                    placeholder="Min 6 characters"
+                  />
+                </div>
+                <div>
+                  <label className="label">Confirm Password</label>
+                  <input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className="input"
+                    placeholder="Re-enter password"
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              <button
+                onClick={closeResetModal}
+                className="btn-secondary flex-1"
+              >
+                {resetSuccess ? 'Close' : 'Cancel'}
+              </button>
+              {!resetSuccess && (
+                <button
+                  onClick={handleResetPassword}
+                  disabled={!newPassword || !confirmPassword || resetPasswordMutation.isPending}
+                  className="btn-primary flex-1"
+                >
+                  {resetPasswordMutation.isPending ? 'Resetting...' : 'Reset Password'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

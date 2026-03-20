@@ -1,10 +1,14 @@
 """
 Pytest configuration and fixtures for MyHours tests.
+
+Each test gets a fresh in-memory SQLite database (function-scoped engine)
+so tests never collide on unique constraints or leak state.
 """
 
 import asyncio
 from typing import AsyncGenerator
 import pytest
+import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -19,31 +23,23 @@ from app.core.security import get_password_hash, create_access_token
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
 
-@pytest.fixture(scope="session")
-def event_loop():
-    """Create event loop for the test session."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
-
-
-@pytest.fixture(scope="session")
+@pytest_asyncio.fixture
 async def engine():
-    """Create async engine for tests."""
-    engine = create_async_engine(
+    """Create a fresh async engine for each test."""
+    eng = create_async_engine(
         TEST_DATABASE_URL,
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-    async with engine.begin() as conn:
+    async with eng.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    yield engine
-    async with engine.begin() as conn:
+    yield eng
+    async with eng.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
-    await engine.dispose()
+    await eng.dispose()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def db_session(engine) -> AsyncGenerator[AsyncSession, None]:
     """Create a new database session for each test."""
     async_session = async_sessionmaker(
@@ -56,7 +52,7 @@ async def db_session(engine) -> AsyncGenerator[AsyncSession, None]:
         await session.rollback()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     """Create test client with database override."""
     async def override_get_db():
@@ -73,7 +69,7 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     app.dependency_overrides.clear()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def test_user(db_session: AsyncSession) -> Employee:
     """Create a test user."""
     from datetime import date
@@ -88,12 +84,12 @@ async def test_user(db_session: AsyncSession) -> Employee:
         is_active=True,
     )
     db_session.add(user)
-    await db_session.commit()
+    await db_session.flush()
     await db_session.refresh(user)
     return user
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def test_manager(db_session: AsyncSession) -> Employee:
     """Create a test manager user."""
     from datetime import date
@@ -109,13 +105,13 @@ async def test_manager(db_session: AsyncSession) -> Employee:
         is_active=True,
     )
     db_session.add(user)
-    await db_session.commit()
+    await db_session.flush()
     await db_session.refresh(user)
     return user
 
 
-@pytest.fixture
-def auth_headers(test_user: Employee) -> dict:
+@pytest_asyncio.fixture
+async def auth_headers(test_user: Employee) -> dict:
     """Generate auth headers for test user."""
     token = create_access_token(
         data={"sub": str(test_user.id), "email": test_user.email}
@@ -123,8 +119,8 @@ def auth_headers(test_user: Employee) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
-@pytest.fixture
-def manager_auth_headers(test_manager: Employee) -> dict:
+@pytest_asyncio.fixture
+async def manager_auth_headers(test_manager: Employee) -> dict:
     """Generate auth headers for test manager."""
     token = create_access_token(
         data={"sub": str(test_manager.id), "email": test_manager.email}

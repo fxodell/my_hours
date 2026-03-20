@@ -16,6 +16,8 @@ import Clients from './pages/Clients'
 import ServiceTypes from './pages/ServiceTypes'
 import LocationsPage from './pages/Locations'
 import PayPeriodsPage from './pages/PayPeriods'
+import SiteRequests from './pages/SiteRequests'
+import SiteRequestForm from './pages/SiteRequestForm'
 import Profile from './pages/Profile'
 import ForgotPassword from './pages/ForgotPassword'
 import ResetPassword from './pages/ResetPassword'
@@ -39,7 +41,15 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 function ManagerRoute({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth()
+  const { user, isLoading } = useAuth()
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+      </div>
+    )
+  }
 
   if (!user?.is_manager && !user?.is_admin) {
     return <Navigate to="/" replace />
@@ -49,7 +59,15 @@ function ManagerRoute({ children }: { children: React.ReactNode }) {
 }
 
 function AdminRoute({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth()
+  const { user, isLoading } = useAuth()
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+      </div>
+    )
+  }
 
   if (!user?.is_admin) {
     return <Navigate to="/" replace />
@@ -88,14 +106,7 @@ export default function App() {
             </ManagerRoute>
           }
         />
-        <Route
-          path="reports"
-          element={
-            <ManagerRoute>
-              <Reports />
-            </ManagerRoute>
-          }
-        />
+        <Route path="reports" element={<Reports />} />
         <Route
           path="employees"
           element={
@@ -136,6 +147,8 @@ export default function App() {
             </AdminRoute>
           }
         />
+        <Route path="site-requests" element={<SiteRequests />} />
+        <Route path="site-requests/new" element={<SiteRequestForm />} />
         <Route path="profile" element={<Profile />} />
       </Route>
     </Routes>

@@ -15,11 +15,13 @@ async def list_clients(
     db: DB,
     current_user: CurrentUser,
     active_only: bool = True,
+    limit: int = 100,
+    offset: int = 0,
 ) -> list[Client]:
     query = select(Client)
     if active_only:
         query = query.where(Client.is_active == True)
-    query = query.order_by(Client.name)
+    query = query.order_by(Client.name).offset(offset).limit(limit)
 
     result = await db.execute(query)
     return list(result.scalars().all())
@@ -113,5 +115,5 @@ async def delete_client(
             detail="Client not found",
         )
 
-    await db.delete(client)
+    client.is_active = False
     await db.commit()

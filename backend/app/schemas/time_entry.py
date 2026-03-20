@@ -83,6 +83,20 @@ class TimeEntryUpdate(BaseModel):
     is_overtime: Optional[bool] = None
     vehicle_reimbursement_tier: Optional[str] = None
 
+    @field_validator("hours")
+    @classmethod
+    def validate_hours(cls, v: Optional[Decimal]) -> Optional[Decimal]:
+        if v is not None and (v < 0 or v > 24):
+            raise ValueError("Hours must be between 0 and 24")
+        return v
+
+    @field_validator("work_mode")
+    @classmethod
+    def validate_work_mode(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v not in ("remote", "on_site"):
+            raise ValueError("Work mode must be 'remote' or 'on_site'")
+        return v
+
 
 class TimeEntryResponse(TimeEntryBase, TimestampSchema):
     id: UUID

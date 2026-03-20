@@ -69,18 +69,9 @@ export default defineConfig({
           },
           {
             urlPattern: /\/api\/.*/i,
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'api-cache',
-              expiration: {
-                maxEntries: 100,
-                maxAgeSeconds: 60 * 60 // 1 hour
-              },
-              cacheableResponse: {
-                statuses: [0, 200]
-              },
-              networkTimeoutSeconds: 10
-            }
+            // Best practice for authenticated API requests:
+            // do not cache API responses; always hit the network to avoid stale timesheet/report data.
+            handler: 'NetworkOnly',
           }
         ]
       }
@@ -91,7 +82,7 @@ export default defineConfig({
     port: 3000,
     proxy: {
       '/api': {
-        target: 'http://localhost:8002',
+        target: 'http://localhost:8000',
         changeOrigin: true
       }
     }

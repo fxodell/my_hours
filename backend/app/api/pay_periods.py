@@ -1,7 +1,7 @@
 from datetime import date, timedelta
 from uuid import UUID
 from fastapi import APIRouter, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, or_, and_
 from sqlalchemy.exc import IntegrityError
 
 from app.models.pay_period import PayPeriod
@@ -38,26 +38,26 @@ async def get_current_pay_period(
     db: DB,
     current_user: CurrentUser,
 ) -> PayPeriod:
-    """Get the current open pay period for the logged-in user's pay period group."""
+    """Get the current open pay period containing today's date."""
     today = date.today()
 
-    # First try to find an open pay period that contains today's date
+    # First try to find an open pay period that contains today's date for the employee's group
     result = await db.execute(
         select(PayPeriod)
-        .where(PayPeriod.period_group == current_user.pay_period_group)
         .where(PayPeriod.status == "open")
+        .where(PayPeriod.period_group == current_user.pay_period_group)
         .where(PayPeriod.start_date <= today)
         .where(PayPeriod.end_date >= today)
         .limit(1)
     )
     pay_period = result.scalar_one_or_none()
 
-    # Fallback: find the nearest upcoming open pay period
+    # Fallback: find the nearest upcoming open pay period for the employee's group
     if not pay_period:
         result = await db.execute(
             select(PayPeriod)
-            .where(PayPeriod.period_group == current_user.pay_period_group)
             .where(PayPeriod.status == "open")
+            .where(PayPeriod.period_group == current_user.pay_period_group)
             .where(PayPeriod.start_date >= today)
             .order_by(PayPeriod.start_date.asc())
             .limit(1)
@@ -71,6 +71,42 @@ async def get_current_pay_period(
         )
 
     return pay_period
+
+
+GRACE_PERIOD_DAYS = 7
+
+
+@router.get("/recent", response_model=list[PayPeriodResponse])
+async def get_recent_pay_periods(
+    db: DB,
+    current_user: CurrentUser,
+) -> list[PayPeriod]:
+    """Get recent pay periods.
+
+    Returns open periods within the last 45 days, plus closed periods
+    still within the grace window (7 days after end_date) for late entries.
+    """
+    today = date.today()
+    cutoff = today - timedelta(days=45)
+    grace_cutoff = today - timedelta(days=GRACE_PERIOD_DAYS)
+
+    result = await db.execute(
+        select(PayPeriod)
+        .where(PayPeriod.period_group == current_user.pay_period_group)
+        .where(PayPeriod.start_date <= today)
+        .where(PayPeriod.end_date >= cutoff)
+        .where(
+            or_(
+                PayPeriod.status == "open",
+                and_(
+                    PayPeriod.status == "closed",
+                    PayPeriod.end_date >= grace_cutoff,
+                ),
+            )
+        )
+        .order_by(PayPeriod.start_date.desc())
+    )
+    return list(result.scalars().all())
 
 
 @router.get("/{pay_period_id}", response_model=PayPeriodResponse)
@@ -119,38 +155,47 @@ async def generate_pay_periods(
     current_user: CurrentAdmin,
     start_date: date,
     weeks: int = 8,
+    period_group: str = "A",
 ) -> list[PayPeriod]:
     """
-    Generate pay periods for both groups (A and B) starting from a date.
-    Creates bi-weekly periods (14 days each), staggered by 1 week.
+    Generate weekly Sun-Sat pay periods starting from a date.
+    Start date must be a Sunday. period_group defaults to 'A'.
     """
+    if start_date.weekday() != 6:  # 6 = Sunday
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Start date must be a Sunday",
+        )
+
+    if period_group not in ("A", "B"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="period_group must be 'A' or 'B'",
+        )
+
     created_periods = []
 
-    for group in ["A", "B"]:
-        # Group B starts 1 week after Group A
-        group_start = start_date if group == "A" else start_date + timedelta(days=7)
+    for i in range(weeks):
+        period_start = start_date + timedelta(days=7 * i)
+        period_end = period_start + timedelta(days=6)
 
-        for i in range(weeks // 2):  # bi-weekly, so half the weeks
-            period_start = group_start + timedelta(days=14 * i)
-            period_end = period_start + timedelta(days=13)
+        # Check if period already exists for this group and start date
+        result = await db.execute(
+            select(PayPeriod)
+            .where(PayPeriod.start_date == period_start)
+            .where(PayPeriod.period_group == period_group)
+        )
+        existing = result.scalar_one_or_none()
 
-            # Check if period already exists
-            result = await db.execute(
-                select(PayPeriod)
-                .where(PayPeriod.period_group == group)
-                .where(PayPeriod.start_date == period_start)
+        if not existing:
+            pay_period = PayPeriod(
+                period_group=period_group,
+                start_date=period_start,
+                end_date=period_end,
+                status="open",
             )
-            existing = result.scalar_one_or_none()
-
-            if not existing:
-                pay_period = PayPeriod(
-                    period_group=group,
-                    start_date=period_start,
-                    end_date=period_end,
-                    status="open",
-                )
-                db.add(pay_period)
-                created_periods.append(pay_period)
+            db.add(pay_period)
+            created_periods.append(pay_period)
 
     await db.commit()
 

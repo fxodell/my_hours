@@ -8,6 +8,7 @@ from app.models.pay_period import PayPeriod
 from app.models.timesheet import Timesheet
 from app.models.time_entry import TimeEntry
 from app.models.pto_entry import PTOEntry
+from app.models.site_request import SiteRequest
 
 __all__ = [
     "Base",
@@ -20,4 +21,5 @@ __all__ = [
     "Timesheet",
     "TimeEntry",
     "PTOEntry",
+    "SiteRequest",
 ]

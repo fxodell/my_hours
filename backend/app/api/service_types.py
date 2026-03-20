@@ -14,8 +14,13 @@ router = APIRouter(prefix="/service-types", tags=["service-types"])
 async def list_service_types(
     db: DB,
     current_user: CurrentUser,
+    active_only: bool = True,
 ) -> list[ServiceType]:
-    result = await db.execute(select(ServiceType).order_by(ServiceType.name))
+    query = select(ServiceType)
+    if active_only:
+        query = query.where(ServiceType.is_active == True)
+    query = query.order_by(ServiceType.name)
+    result = await db.execute(query)
     return list(result.scalars().all())
 
 
@@ -113,5 +118,5 @@ async def delete_service_type(
             detail="Service type not found",
         )
 
-    await db.delete(service_type)
+    service_type.is_active = False
     await db.commit()

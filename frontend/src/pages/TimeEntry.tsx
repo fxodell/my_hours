@@ -2,9 +2,9 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
-import { format } from 'date-fns'
+import { format, parseISO, differenceInCalendarDays } from 'date-fns'
 import * as api from '../services/api'
-import type { TimeEntryCreate } from '../types'
+import type { TimeEntryCreate, SiteRequestCreate } from '../types'
 import SearchableSelect from '../components/SearchableSelect'
 import { getEntryDateMax, isTimesheetEditable, isTimesheetReadOnly } from '../timesheetStatus'
 
@@ -29,8 +29,112 @@ interface FormData {
   service_type_id: string
   work_mode: 'remote' | 'on_site'
   hours: number
+  start_time: string
+  end_time: string
   description: string
   vehicle_reimbursement_tier: string
+}
+
+function calcHoursFromTimes(start: string, end: string): number | null {
+  if (!start || !end) return null
+  const [sh, sm] = start.split(':').map(Number)
+  const [eh, em] = end.split(':').map(Number)
+  const diff = (eh * 60 + em - (sh * 60 + sm)) / 60
+  if (diff <= 0) return null
+  return Math.round(diff * 4) / 4 // round to nearest 0.25
+}
+
+function SiteRequestInlineForm({
+  clientId,
+  isPending,
+  onSubmit,
+  onCancel,
+}: {
+  clientId: string
+  isPending: boolean
+  onSubmit: (data: SiteRequestCreate) => void
+  onCancel: () => void
+}) {
+  const [siteName, setSiteName] = useState('')
+  const [region, setRegion] = useState('')
+  const [jobCode, setJobCode] = useState('')
+  const [notes, setNotes] = useState('')
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!siteName.trim()) return
+    onSubmit({
+      client_id: clientId,
+      site_name: siteName.trim(),
+      region: region.trim() || undefined,
+      job_code: jobCode.trim() || undefined,
+      notes: notes.trim() || undefined,
+    })
+  }
+
+  return (
+    <div className="space-y-2">
+      <div>
+        <label className="text-xs font-medium text-gray-700">Site Name *</label>
+        <input
+          type="text"
+          value={siteName}
+          onChange={(e) => setSiteName(e.target.value)}
+          className="input text-sm"
+          placeholder="e.g. Well Pad A-14"
+          required
+        />
+      </div>
+      <div>
+        <label className="text-xs font-medium text-gray-700">Region</label>
+        <input
+          type="text"
+          value={region}
+          onChange={(e) => setRegion(e.target.value)}
+          className="input text-sm"
+          placeholder="e.g. Alpine High"
+        />
+      </div>
+      <div>
+        <label className="text-xs font-medium text-gray-700">AFE / Job Code</label>
+        <input
+          type="text"
+          value={jobCode}
+          onChange={(e) => setJobCode(e.target.value)}
+          className="input text-sm"
+          placeholder="e.g. AFE-12345"
+        />
+      </div>
+      <div>
+        <label className="text-xs font-medium text-gray-700">Notes</label>
+        <input
+          type="text"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          className="input text-sm"
+          placeholder="e.g. new well starting next week"
+        />
+      </div>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={handleSubmit}
+          disabled={!siteName.trim() || isPending}
+          className="btn btn-primary text-sm flex-1"
+        >
+          {isPending ? 'Submitting...' : 'Submit Request'}
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="btn btn-secondary text-sm"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
 }
 
 export default function TimeEntry() {
@@ -39,10 +143,42 @@ export default function TimeEntry() {
   const [searchParams] = useSearchParams()
   const timesheetParam = searchParams.get('timesheet')
   const [error, setError] = useState('')
+  const [selectedPeriodId, setSelectedPeriodId] = useState<string | null>(null)
 
+  // Fetch recent pay periods when no specific timesheet is targeted
+  const { data: recentPeriods } = useQuery({
+    queryKey: ['recentPayPeriods'],
+    queryFn: api.getRecentPayPeriods,
+    enabled: !timesheetParam,
+  })
+
+  // Filter to only current periods (containing today)
+  const today = format(new Date(), 'yyyy-MM-dd')
+  const currentPeriods = recentPeriods?.filter(
+    (pp) => pp.start_date <= today && pp.end_date >= today
+  )
+
+  // Auto-select the current period
+  useEffect(() => {
+    if (currentPeriods && currentPeriods.length > 0 && !selectedPeriodId) {
+      setSelectedPeriodId(currentPeriods[0].id)
+    }
+  }, [currentPeriods, selectedPeriodId])
+
+  // When a specific timesheet is passed, use it directly; otherwise use period-based lookup
   const { data: timesheet } = useQuery({
-    queryKey: timesheetParam ? ['timesheet', timesheetParam] : ['currentTimesheet'],
-    queryFn: () => timesheetParam ? api.getTimesheet(timesheetParam) : api.getCurrentTimesheet(),
+    queryKey: timesheetParam
+      ? ['timesheet', timesheetParam]
+      : selectedPeriodId
+        ? ['timesheetForPeriod', selectedPeriodId]
+        : ['currentTimesheet'],
+    queryFn: () =>
+      timesheetParam
+        ? api.getTimesheet(timesheetParam)
+        : selectedPeriodId
+          ? api.getTimesheetForPeriod(selectedPeriodId)
+          : api.getCurrentTimesheet(),
+    enabled: !!timesheetParam || !!selectedPeriodId,
   })
 
   const { data: payPeriod } = useQuery({
@@ -66,6 +202,8 @@ export default function TimeEntry() {
       work_date: format(new Date(), 'yyyy-MM-dd'),
       work_mode: 'remote',
       hours: 8,
+      start_time: '',
+      end_time: '',
       description: '',
       vehicle_reimbursement_tier: '',
       client_id: '',
@@ -76,8 +214,18 @@ export default function TimeEntry() {
   })
 
   const workMode = watch('work_mode')
+  const startTime = watch('start_time')
+  const endTime = watch('end_time')
   const selectedClientId = watch('client_id')
   const selectedLocationId = watch('location_id')
+
+  // Auto-calculate hours from start/end times
+  useEffect(() => {
+    const calculated = calcHoursFromTimes(startTime, endTime)
+    if (calculated !== null) {
+      setValue('hours', calculated)
+    }
+  }, [startTime, endTime, setValue])
 
   // Fetch locations when client changes
   const { data: locations } = useQuery({
@@ -108,7 +256,8 @@ export default function TimeEntry() {
     mutationFn: (data: TimeEntryCreate) =>
       api.createTimeEntry(timesheet!.id, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['timeEntries'] })
+      queryClient.invalidateQueries({ queryKey: ['timeEntries', timesheet!.id] })
+      queryClient.invalidateQueries({ queryKey: ['timesheet', timesheet!.id] })
       queryClient.invalidateQueries({ queryKey: ['currentTimesheet'] })
       navigate('/')
     },
@@ -128,6 +277,8 @@ export default function TimeEntry() {
       service_type_id: data.service_type_id || undefined,
       work_mode: data.work_mode,
       hours: data.hours,
+      start_time: data.start_time || undefined,
+      end_time: data.end_time || undefined,
       description: data.description || undefined,
       vehicle_reimbursement_tier: data.vehicle_reimbursement_tier || undefined,
       is_billable: true,
@@ -135,6 +286,24 @@ export default function TimeEntry() {
 
     createEntryMutation.mutate(entry)
   }
+
+  const [showSiteRequest, setShowSiteRequest] = useState(false)
+  const [siteRequestSent, setSiteRequestSent] = useState(false)
+
+  const siteRequestMutation = useMutation({
+    mutationFn: api.createSiteRequest,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['siteRequests'] })
+      setShowSiteRequest(false)
+      setSiteRequestSent(true)
+    },
+  })
+
+  // Reset site request state when client changes
+  useEffect(() => {
+    setShowSiteRequest(false)
+    setSiteRequestSent(false)
+  }, [selectedClientId])
 
   const canEdit = isTimesheetEditable(timesheet?.status)
   const maxWorkDate = getEntryDateMax(payPeriod?.end_date)
@@ -164,6 +333,56 @@ export default function TimeEntry() {
       )}
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        {/* Pay Period Selector */}
+        {!timesheetParam && currentPeriods && currentPeriods.length > 1 && (
+          <div>
+            <label className="label">Pay Period</label>
+            <div className="grid grid-cols-1 gap-2">
+              {currentPeriods
+                .slice()
+                .sort((a, b) => b.start_date.localeCompare(a.start_date))
+                .map((pp) => {
+                  const today = format(new Date(), 'yyyy-MM-dd')
+                  const isCurrentPeriod = pp.start_date <= today && pp.end_date >= today
+                  const isClosed = pp.status === 'closed'
+                  const graceDaysLeft = isClosed ? 7 - differenceInCalendarDays(new Date(), parseISO(pp.end_date)) : 0
+                  return (
+                    <label
+                      key={pp.id}
+                      className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-colors ${
+                        selectedPeriodId === pp.id
+                          ? 'bg-primary-100 border-primary-500 text-primary-700'
+                          : 'border-gray-300 hover:border-gray-400'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="pay_period"
+                        value={pp.id}
+                        checked={selectedPeriodId === pp.id}
+                        onChange={() => setSelectedPeriodId(pp.id)}
+                        className="sr-only"
+                      />
+                      <span>
+                        {format(parseISO(pp.start_date), 'MMM d')} - {format(parseISO(pp.end_date), 'MMM d, yyyy')}
+                      </span>
+                      <span className="flex gap-1">
+                        {isCurrentPeriod && (
+                          <span className="text-xs bg-primary-200 text-primary-800 px-2 py-0.5 rounded-full">Current</span>
+                        )}
+                        {isClosed && graceDaysLeft > 0 && (
+                          <span className="text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">
+                            {graceDaysLeft}d left
+                          </span>
+                        )}
+                      </span>
+                    </label>
+                  )
+                })}
+            </div>
+          </div>
+        )}
+
         {/* Date */}
         <div>
           <label className="label">Date</label>
@@ -182,6 +401,37 @@ export default function TimeEntry() {
           )}
           {errors.work_date && (
             <p className="text-red-500 text-sm mt-1">{errors.work_date.message}</p>
+          )}
+        </div>
+
+        {/* Start / End Time */}
+        <div>
+          <label className="label">Start &amp; End Time (optional)</label>
+          <div className="grid grid-cols-2 gap-2">
+            <input
+              type="time"
+              {...register('start_time')}
+              className="input"
+              disabled={!canEdit}
+              placeholder="Start"
+            />
+            <input
+              type="time"
+              {...register('end_time')}
+              className="input"
+              disabled={!canEdit}
+              placeholder="End"
+            />
+          </div>
+          {startTime && endTime && calcHoursFromTimes(startTime, endTime) !== null && (
+            <p className="text-gray-500 text-xs mt-1">
+              Calculated: {calcHoursFromTimes(startTime, endTime)}h
+            </p>
+          )}
+          {startTime && endTime && calcHoursFromTimes(startTime, endTime) === null && (
+            <p className="text-red-500 text-xs mt-1">
+              End time must be after start time
+            </p>
           )}
         </div>
 
@@ -273,20 +523,77 @@ export default function TimeEntry() {
           </select>
         </div>
 
-        {/* Location - Only show when client has locations */}
-        {selectedClientId && locations && locations.length > 0 && (
+        {/* Location - Show when client is selected */}
+        {selectedClientId && (
           <div>
             <label className="label">Location</label>
-            <SearchableSelect
-              options={(locations || []).map((l) => ({
-                value: l.id,
-                label: `${l.region ? `${l.region} - ` : ''}${l.site_name}`,
-              }))}
-              value={watch('location_id')}
-              onChange={(val) => setValue('location_id', val)}
-              placeholder="Select a location"
-              disabled={!canEdit}
-            />
+            {locations && locations.length > 0 ? (
+              <SearchableSelect
+                options={(locations || []).map((l) => ({
+                  value: l.id,
+                  label: `${l.region ? `${l.region} - ` : ''}${l.site_name}`,
+                }))}
+                value={watch('location_id')}
+                onChange={(val) => setValue('location_id', val)}
+                placeholder="Select a location"
+                disabled={!canEdit}
+              />
+            ) : (
+              <p className="text-sm text-gray-500 py-2">No locations for this client yet.</p>
+            )}
+
+            {/* Site request success message */}
+            {siteRequestSent && (
+              <div className="bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded-lg text-sm mt-2 flex items-center gap-2">
+                <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                Site request submitted. Your manager will review it shortly.
+              </div>
+            )}
+
+            {/* Request new site toggle */}
+            {!showSiteRequest && !siteRequestSent && (
+              <button
+                type="button"
+                onClick={() => setShowSiteRequest(true)}
+                className="text-sm text-primary-600 mt-1 flex items-center gap-1"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                </svg>
+                Can't find your site? Request a new one
+              </button>
+            )}
+
+            {/* Inline site request form */}
+            {showSiteRequest && (
+              <div className="mt-2 border border-primary-200 bg-primary-50 rounded-lg p-3 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-medium text-sm text-gray-900">Request New Site</h4>
+                  <button
+                    type="button"
+                    onClick={() => setShowSiteRequest(false)}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+
+                {siteRequestMutation.isError && (
+                  <p className="text-red-600 text-sm">{(siteRequestMutation.error as Error).message}</p>
+                )}
+
+                <SiteRequestInlineForm
+                  clientId={selectedClientId}
+                  isPending={siteRequestMutation.isPending}
+                  onSubmit={(data) => siteRequestMutation.mutate(data)}
+                  onCancel={() => setShowSiteRequest(false)}
+                />
+              </div>
+            )}
           </div>
         )}
 

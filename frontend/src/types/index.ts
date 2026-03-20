@@ -94,6 +94,37 @@ export interface PTOEntry {
   notes: string | null
 }
 
+export interface SiteRequest {
+  id: string
+  employee_id: string
+  client_id: string
+  site_name: string
+  region: string | null
+  job_code: string | null
+  job_code_description: string | null
+  notes: string | null
+  status: 'pending' | 'approved' | 'rejected'
+  reviewed_by: string | null
+  reviewed_at: string | null
+  rejection_reason: string | null
+  created_location_id: string | null
+  created_job_code_id: string | null
+  employee_name: string | null
+  client_name: string | null
+  reviewer_name: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface SiteRequestCreate {
+  client_id: string
+  site_name: string
+  region?: string
+  job_code?: string
+  job_code_description?: string
+  notes?: string
+}
+
 export interface TimeEntryCreate {
   work_date: string
   client_id?: string

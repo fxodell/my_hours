@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
@@ -28,8 +28,19 @@ interface FormData {
   service_type_id: string
   work_mode: 'remote' | 'on_site'
   hours: number
+  start_time: string
+  end_time: string
   description: string
   vehicle_reimbursement_tier: string
+}
+
+function calcHoursFromTimes(start: string, end: string): number | null {
+  if (!start || !end) return null
+  const [sh, sm] = start.split(':').map(Number)
+  const [eh, em] = end.split(':').map(Number)
+  const diff = (eh * 60 + em - (sh * 60 + sm)) / 60
+  if (diff <= 0) return null
+  return Math.round(diff * 4) / 4
 }
 
 export default function TimeEntryEdit() {
@@ -51,8 +62,9 @@ export default function TimeEntryEdit() {
   })
 
   const { data: payPeriod } = useQuery({
-    queryKey: ['currentPayPeriod'],
-    queryFn: api.getCurrentPayPeriod,
+    queryKey: ['payPeriod', timesheet?.pay_period_id],
+    queryFn: () => api.getPayPeriod(timesheet!.pay_period_id),
+    enabled: !!timesheet?.pay_period_id,
   })
 
   const entry = entries?.find(e => e.id === entryId)
@@ -72,6 +84,8 @@ export default function TimeEntryEdit() {
       work_date: '',
       work_mode: 'remote',
       hours: 8,
+      start_time: '',
+      end_time: '',
       description: '',
       vehicle_reimbursement_tier: '',
       client_id: '',
@@ -88,6 +102,8 @@ export default function TimeEntryEdit() {
         work_date: entry.work_date,
         work_mode: entry.work_mode,
         hours: Number(entry.hours),
+        start_time: entry.start_time || '',
+        end_time: entry.end_time || '',
         description: entry.description || '',
         vehicle_reimbursement_tier: entry.vehicle_reimbursement_tier || '',
         client_id: entry.client_id || '',
@@ -99,8 +115,24 @@ export default function TimeEntryEdit() {
   }, [entry, reset])
 
   const workMode = watch('work_mode')
+  const startTime = watch('start_time')
+  const endTime = watch('end_time')
   const selectedClientId = watch('client_id')
   const selectedLocationId = watch('location_id')
+
+  // Auto-calculate hours from start/end times
+  useEffect(() => {
+    const calculated = calcHoursFromTimes(startTime, endTime)
+    if (calculated !== null) {
+      setValue('hours', calculated)
+    }
+  }, [startTime, endTime, setValue])
+
+  // Track whether entry data has loaded to avoid resetting on initial populate
+  const entryLoadedRef = useRef(false)
+  useEffect(() => {
+    if (entry) entryLoadedRef.current = true
+  }, [entry])
 
   // Fetch locations when client changes
   const { data: locations } = useQuery({
@@ -115,6 +147,25 @@ export default function TimeEntryEdit() {
     queryFn: () => api.getJobCodes(selectedLocationId),
     enabled: !!selectedLocationId,
   })
+
+  // Reset location and job code when client changes (skip initial entry load)
+  const prevClientRef = useRef(selectedClientId)
+  useEffect(() => {
+    if (entryLoadedRef.current && prevClientRef.current !== selectedClientId) {
+      setValue('location_id', '')
+      setValue('job_code_id', '')
+    }
+    prevClientRef.current = selectedClientId
+  }, [selectedClientId, setValue])
+
+  // Reset job code when location changes (skip initial entry load)
+  const prevLocationRef = useRef(selectedLocationId)
+  useEffect(() => {
+    if (entryLoadedRef.current && prevLocationRef.current !== selectedLocationId) {
+      setValue('job_code_id', '')
+    }
+    prevLocationRef.current = selectedLocationId
+  }, [selectedLocationId, setValue])
 
   const updateEntryMutation = useMutation({
     mutationFn: (data: Partial<TimeEntryCreate>) =>
@@ -138,6 +189,8 @@ export default function TimeEntryEdit() {
       service_type_id: data.service_type_id || undefined,
       work_mode: data.work_mode,
       hours: data.hours,
+      start_time: data.start_time || undefined,
+      end_time: data.end_time || undefined,
       description: data.description || undefined,
       vehicle_reimbursement_tier: data.vehicle_reimbursement_tier || undefined,
     }
@@ -199,6 +252,37 @@ export default function TimeEntryEdit() {
           )}
           {errors.work_date && (
             <p className="text-red-500 text-sm mt-1">{errors.work_date.message}</p>
+          )}
+        </div>
+
+        {/* Start / End Time */}
+        <div>
+          <label className="label">Start &amp; End Time (optional)</label>
+          <div className="grid grid-cols-2 gap-2">
+            <input
+              type="time"
+              {...register('start_time')}
+              className="input"
+              disabled={!canEdit}
+              placeholder="Start"
+            />
+            <input
+              type="time"
+              {...register('end_time')}
+              className="input"
+              disabled={!canEdit}
+              placeholder="End"
+            />
+          </div>
+          {startTime && endTime && calcHoursFromTimes(startTime, endTime) !== null && (
+            <p className="text-gray-500 text-xs mt-1">
+              Calculated: {calcHoursFromTimes(startTime, endTime)}h
+            </p>
+          )}
+          {startTime && endTime && calcHoursFromTimes(startTime, endTime) === null && (
+            <p className="text-red-500 text-xs mt-1">
+              End time must be after start time
+            </p>
           )}
         </div>
 

@@ -3,35 +3,46 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
+from fastapi.responses import JSONResponse
+
 from app.models.employee import Employee
-from app.schemas.employee import EmployeeCreate, EmployeeUpdate, EmployeeResponse
+from app.schemas.employee import EmployeeCreate, EmployeeUpdate, EmployeeResponse, EmployeeSummaryResponse
 from app.core.security import get_password_hash
 from app.api.deps import DB, CurrentUser, CurrentAdmin
 
 router = APIRouter(prefix="/employees", tags=["employees"])
 
 
-@router.get("", response_model=list[EmployeeResponse])
+@router.get("")
 async def list_employees(
     db: DB,
     current_user: CurrentUser,
     active_only: bool = True,
-) -> list[Employee]:
+) -> JSONResponse:
     query = select(Employee)
     if active_only:
         query = query.where(Employee.is_active == True)
     query = query.order_by(Employee.last_name, Employee.first_name)
 
     result = await db.execute(query)
-    return list(result.scalars().all())
+    employees = list(result.scalars().all())
+
+    if current_user.is_manager or current_user.is_admin:
+        schema = EmployeeResponse
+    else:
+        schema = EmployeeSummaryResponse
+
+    return JSONResponse(
+        content=[schema.model_validate(e, from_attributes=True).model_dump(mode="json") for e in employees]
+    )
 
 
-@router.get("/{employee_id}", response_model=EmployeeResponse)
+@router.get("/{employee_id}")
 async def get_employee(
     employee_id: UUID,
     db: DB,
     current_user: CurrentUser,
-) -> Employee:
+) -> JSONResponse:
     result = await db.execute(select(Employee).where(Employee.id == employee_id))
     employee = result.scalar_one_or_none()
 
@@ -41,7 +52,14 @@ async def get_employee(
             detail="Employee not found",
         )
 
-    return employee
+    if current_user.is_manager or current_user.is_admin:
+        schema = EmployeeResponse
+    else:
+        schema = EmployeeSummaryResponse
+
+    return JSONResponse(
+        content=schema.model_validate(employee, from_attributes=True).model_dump(mode="json")
+    )
 
 
 @router.post("", response_model=EmployeeResponse, status_code=status.HTTP_201_CREATED)

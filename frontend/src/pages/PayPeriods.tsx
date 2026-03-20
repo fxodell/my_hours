@@ -15,6 +15,7 @@ interface PayPeriodFormData {
 interface GenerateFormData {
   start_date: string
   weeks: number
+  period_group: string
 }
 
 export default function PayPeriods() {
@@ -24,7 +25,6 @@ export default function PayPeriods() {
   const [showGenerate, setShowGenerate] = useState(false)
   const [editingPeriod, setEditingPeriod] = useState<PayPeriod | null>(null)
   const [confirmClose, setConfirmClose] = useState<string | null>(null)
-  const [filterGroup, setFilterGroup] = useState<string>('')
   const [filterStatus, setFilterStatus] = useState<string>('')
   const [formData, setFormData] = useState<PayPeriodFormData>({
     period_group: 'A',
@@ -35,14 +35,14 @@ export default function PayPeriods() {
   const [generateData, setGenerateData] = useState<GenerateFormData>({
     start_date: '',
     weeks: 8,
+    period_group: 'A',
   })
   const [error, setError] = useState('')
 
   const { data: payPeriods, isLoading } = useQuery({
-    queryKey: ['payPeriods', 'admin', filterGroup, filterStatus],
+    queryKey: ['payPeriods', 'admin', filterStatus],
     queryFn: () =>
       api.getAllPayPeriods({
-        period_group: filterGroup || undefined,
         status_filter: filterStatus || undefined,
         limit: 100,
       }),
@@ -85,7 +85,7 @@ export default function PayPeriods() {
     onSuccess: (created) => {
       queryClient.invalidateQueries({ queryKey: ['payPeriods'] })
       setShowGenerate(false)
-      setGenerateData({ start_date: '', weeks: 8 })
+      setGenerateData({ start_date: '', weeks: 8, period_group: 'A' })
       setError('')
       alert(`Generated ${created.length} pay periods.`)
     },
@@ -193,15 +193,6 @@ export default function PayPeriods() {
       {/* Filters */}
       <div className="flex gap-3">
         <select
-          value={filterGroup}
-          onChange={(e) => setFilterGroup(e.target.value)}
-          className="input w-auto"
-        >
-          <option value="">All Groups</option>
-          <option value="A">Group A</option>
-          <option value="B">Group B</option>
-        </select>
-        <select
           value={filterStatus}
           onChange={(e) => setFilterStatus(e.target.value)}
           className="input w-auto"
@@ -217,7 +208,7 @@ export default function PayPeriods() {
         <div className="card p-4">
           <h3 className="font-semibold text-gray-900 mb-4">Generate Pay Periods</h3>
           <p className="text-sm text-gray-500 mb-4">
-            Creates bi-weekly periods for both Group A and Group B, staggered by 1 week.
+            Creates weekly Sun-Sat pay periods. Start date must be a Sunday.
           </p>
 
           {error && (
@@ -227,9 +218,9 @@ export default function PayPeriods() {
           )}
 
           <form onSubmit={handleGenerate} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-4">
               <div>
-                <label className="label">Start Date (Group A)</label>
+                <label className="label">Start Date (must be Sunday)</label>
                 <input
                   type="date"
                   value={generateData.start_date}
@@ -239,14 +230,24 @@ export default function PayPeriods() {
                 />
               </div>
               <div>
+                <label className="label">Group</label>
+                <select
+                  value={generateData.period_group}
+                  onChange={(e) => setGenerateData({ ...generateData, period_group: e.target.value })}
+                  className="input"
+                >
+                  <option value="A">Group A</option>
+                  <option value="B">Group B</option>
+                </select>
+              </div>
+              <div>
                 <label className="label">Weeks</label>
                 <input
                   type="number"
                   value={generateData.weeks}
                   onChange={(e) => setGenerateData({ ...generateData, weeks: parseInt(e.target.value) || 8 })}
                   className="input"
-                  min={2}
-                  step={2}
+                  min={1}
                   required
                 />
               </div>
@@ -286,21 +287,6 @@ export default function PayPeriods() {
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            {!editingPeriod && (
-              <div>
-                <label className="label">Group</label>
-                <select
-                  value={formData.period_group}
-                  onChange={(e) => setFormData({ ...formData, period_group: e.target.value })}
-                  className="input"
-                  required
-                >
-                  <option value="A">Group A</option>
-                  <option value="B">Group B</option>
-                </select>
-              </div>
-            )}
-
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="label">Start Date</label>
@@ -361,9 +347,6 @@ export default function PayPeriods() {
             <div className="flex items-center justify-between">
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="px-2 py-0.5 text-xs font-medium bg-blue-100 text-blue-800 rounded-full">
-                    Group {pp.period_group}
-                  </span>
                   <span
                     className={`px-2 py-0.5 text-xs font-medium rounded-full ${
                       statusColors[pp.status] || 'bg-gray-100 text-gray-800'

@@ -12,7 +12,23 @@
       "Bash(npm run build:*)",
       "Bash(sudo cp:*)",
       "Bash(host:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(cd:*)",
+      "Bash(tail:*)",
+      "Bash(head:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(grep:*)",
+      "Bash(python:*)",
+      "Bash(python3:*)",
+      "Bash(npx tsc:*)",
+      "Bash(sudo docker:*)",
+      "Bash(sudo:*)",
+      "Bash(alembic revision:*)",
+      "Bash(make dev-frontend:*)",
+      "Bash(ls:*)",
+      "Read(//var/www/html/**)",
+      "Read(//opt/myhours/**)"
     ]
   }
 }
