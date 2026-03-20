@@ -58,6 +58,21 @@ class PTOEntryUpdate(BaseModel):
     hours: Optional[Decimal] = None
     notes: Optional[str] = None
 
+    @field_validator("hours")
+    @classmethod
+    def validate_hours(cls, v: Optional[Decimal]) -> Optional[Decimal]:
+        if v is not None and (v < 0 or v > 24):
+            raise ValueError("Hours must be between 0 and 24")
+        return v
+
+    @field_validator("pto_type")
+    @classmethod
+    def validate_pto_type(cls, v: Optional[str]) -> Optional[str]:
+        valid_types = ("personal", "sick", "holiday", "other")
+        if v is not None and v not in valid_types:
+            raise ValueError(f"PTO type must be one of: {', '.join(valid_types)}")
+        return v
+
 
 class PTOEntryResponse(PTOEntryBase, TimestampSchema):
     id: UUID

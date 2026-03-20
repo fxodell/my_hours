@@ -1,7 +1,6 @@
 from uuid import UUID
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
 
 from app.models.location import Location
 from app.models.job_code import JobCode
@@ -89,6 +88,26 @@ async def update_location(
     return location
 
 
+@router.delete("/{location_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_location(
+    location_id: UUID,
+    db: DB,
+    current_user: CurrentAdmin,
+) -> None:
+    result = await db.execute(select(Location).where(Location.id == location_id))
+    location = result.scalar_one_or_none()
+
+    if not location:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Location not found",
+        )
+
+    # Soft delete - set inactive instead of removing
+    location.is_active = False
+    await db.commit()
+
+
 # Job Codes under locations
 @router.get("/{location_id}/job-codes", response_model=list[JobCodeResponse])
 async def list_job_codes(
@@ -132,6 +151,31 @@ async def create_job_code(
     await db.commit()
     await db.refresh(job_code)
     return job_code
+
+
+@router.delete("/{location_id}/job-codes/{job_code_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_job_code(
+    location_id: UUID,
+    job_code_id: UUID,
+    db: DB,
+    current_user: CurrentAdmin,
+) -> None:
+    result = await db.execute(
+        select(JobCode)
+        .where(JobCode.id == job_code_id)
+        .where(JobCode.location_id == location_id)
+    )
+    job_code = result.scalar_one_or_none()
+
+    if not job_code:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job code not found",
+        )
+
+    # Soft delete - set inactive instead of removing
+    job_code.is_active = False
+    await db.commit()
 
 
 # Flat job codes endpoint for easier frontend use

@@ -1,4 +1,3 @@
-import asyncio
 from datetime import datetime, timezone
 from uuid import UUID
 from fastapi import APIRouter, HTTPException, status, BackgroundTasks
@@ -11,7 +10,7 @@ from app.models.time_entry import TimeEntry
 from app.models.pto_entry import PTOEntry
 from app.models.pay_period import PayPeriod
 from app.models.employee import Employee
-from app.schemas.timesheet import TimesheetCreate, TimesheetResponse
+from app.schemas.timesheet import TimesheetCreate, TimesheetReject, TimesheetResponse
 from app.schemas.time_entry import TimeEntryCreate, TimeEntryUpdate, TimeEntryResponse
 from app.schemas.pto_entry import PTOEntryCreate, PTOEntryUpdate, PTOEntryResponse
 from app.api.deps import DB, CurrentUser, CurrentManager
@@ -28,7 +27,13 @@ async def list_timesheets(
     employee_id: UUID | None = None,
     status_filter: str | None = None,
 ) -> list[dict]:
-    query = select(Timesheet).options(selectinload(Timesheet.employee))
+    # Only list timesheets that have a valid pay period and employee (exclude orphans)
+    query = (
+        select(Timesheet)
+        .join(PayPeriod, Timesheet.pay_period_id == PayPeriod.id)
+        .join(Employee, Timesheet.employee_id == Employee.id)
+        .options(selectinload(Timesheet.employee), selectinload(Timesheet.pay_period))
+    )
 
     # Non-managers can only see their own timesheets
     if not current_user.is_manager and not current_user.is_admin:
@@ -42,10 +47,14 @@ async def list_timesheets(
     if status_filter:
         query = query.where(Timesheet.status == status_filter)
 
-    query = query.order_by(Timesheet.created_at.desc())
+    query = query.order_by(
+        PayPeriod.start_date.desc(),
+        Employee.last_name,
+        Employee.first_name,
+    )
 
     result = await db.execute(query)
-    timesheets = list(result.scalars().all())
+    timesheets = list(result.unique().scalars().all())
 
     return [
         {
@@ -65,21 +74,23 @@ async def get_current_timesheet(
     from datetime import date as date_type
     today = date_type.today()
 
-    # Find the open pay period that contains today's date
+    # Find the open pay period that contains today's date for the employee's group
     result = await db.execute(
         select(PayPeriod)
         .where(PayPeriod.status == "open")
+        .where(PayPeriod.period_group == current_user.pay_period_group)
         .where(PayPeriod.start_date <= today)
         .where(PayPeriod.end_date >= today)
         .limit(1)
     )
     pay_period = result.scalar_one_or_none()
 
-    # Fallback: nearest upcoming open pay period
+    # Fallback: nearest upcoming open pay period for the employee's group
     if not pay_period:
         result = await db.execute(
             select(PayPeriod)
             .where(PayPeriod.status == "open")
+            .where(PayPeriod.period_group == current_user.pay_period_group)
             .where(PayPeriod.start_date >= today)
             .order_by(PayPeriod.start_date.asc())
             .limit(1)
@@ -143,6 +154,13 @@ async def get_timesheet_for_period(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Pay period not found",
+        )
+
+    # Prevent employees from creating timesheets in the wrong pay period group
+    if pay_period.period_group != current_user.pay_period_group:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Pay period does not match your pay period group",
         )
 
     if pay_period.status == "processed":
@@ -233,6 +251,35 @@ async def create_timesheet(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Cannot create timesheet for another user",
+        )
+
+    # Validate pay period belongs to the employee's group
+    target_employee_id = timesheet_data.employee_id
+    result = await db.execute(
+        select(PayPeriod).where(PayPeriod.id == timesheet_data.pay_period_id)
+    )
+    pay_period = result.scalar_one_or_none()
+    if not pay_period:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Pay period not found",
+        )
+    # For admin creating on behalf of another user, look up that employee's group
+    if target_employee_id != current_user.id:
+        from app.models.employee import Employee
+        result = await db.execute(
+            select(Employee).where(Employee.id == target_employee_id)
+        )
+        target_employee = result.scalar_one_or_none()
+        if target_employee and pay_period.period_group != target_employee.pay_period_group:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Pay period does not match the employee's pay period group",
+            )
+    elif pay_period.period_group != current_user.pay_period_group:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Pay period does not match your pay period group",
         )
 
     timesheet = Timesheet(**timesheet_data.model_dump())
@@ -372,7 +419,7 @@ async def approve_timesheet(
 @router.post("/{timesheet_id}/reject", response_model=TimesheetResponse)
 async def reject_timesheet(
     timesheet_id: UUID,
-    rejection_reason: str,
+    body: TimesheetReject,
     db: DB,
     current_user: CurrentManager,
     background_tasks: BackgroundTasks,
@@ -400,8 +447,7 @@ async def reject_timesheet(
         )
 
     timesheet.status = "rejected"
-    timesheet.rejection_reason = rejection_reason
-    timesheet.approved_by = current_user.id
+    timesheet.rejection_reason = body.rejection_reason
 
     await db.commit()
     await db.refresh(timesheet)
@@ -414,7 +460,7 @@ async def reject_timesheet(
         employee.full_name,
         pay_period_str,
         current_user.full_name,
-        rejection_reason,
+        body.rejection_reason,
     )
 
     return timesheet
@@ -427,15 +473,21 @@ async def list_time_entries(
     db: DB,
     current_user: CurrentUser,
 ) -> list[TimeEntry]:
-    # First verify access to timesheet
-    result = await db.execute(select(Timesheet).where(Timesheet.id == timesheet_id))
-    timesheet = result.scalar_one_or_none()
+    # Verify access to timesheet and get pay period for date filtering
+    result = await db.execute(
+        select(Timesheet, PayPeriod)
+        .join(PayPeriod, Timesheet.pay_period_id == PayPeriod.id)
+        .where(Timesheet.id == timesheet_id)
+    )
+    row = result.one_or_none()
 
-    if not timesheet:
+    if not row:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Timesheet not found",
         )
+
+    timesheet, pay_period = row
 
     if (
         timesheet.employee_id != current_user.id
@@ -447,9 +499,12 @@ async def list_time_entries(
             detail="Not authorized to view this timesheet",
         )
 
+    # Only return entries whose work_date falls within this timesheet's pay period
     result = await db.execute(
         select(TimeEntry)
         .where(TimeEntry.timesheet_id == timesheet_id)
+        .where(TimeEntry.work_date >= pay_period.start_date)
+        .where(TimeEntry.work_date <= pay_period.end_date)
         .order_by(TimeEntry.work_date, TimeEntry.created_at)
     )
     return list(result.scalars().all())
@@ -638,14 +693,21 @@ async def list_pto_entries(
     db: DB,
     current_user: CurrentUser,
 ) -> list[PTOEntry]:
-    result = await db.execute(select(Timesheet).where(Timesheet.id == timesheet_id))
-    timesheet = result.scalar_one_or_none()
+    # Verify access to timesheet and get pay period for date filtering
+    result = await db.execute(
+        select(Timesheet, PayPeriod)
+        .join(PayPeriod, Timesheet.pay_period_id == PayPeriod.id)
+        .where(Timesheet.id == timesheet_id)
+    )
+    row = result.one_or_none()
 
-    if not timesheet:
+    if not row:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Timesheet not found",
         )
+
+    timesheet, pay_period = row
 
     if (
         timesheet.employee_id != current_user.id
@@ -657,9 +719,12 @@ async def list_pto_entries(
             detail="Not authorized to view this timesheet",
         )
 
+    # Only return entries whose pto_date falls within this timesheet's pay period
     result = await db.execute(
         select(PTOEntry)
         .where(PTOEntry.timesheet_id == timesheet_id)
+        .where(PTOEntry.pto_date >= pay_period.start_date)
+        .where(PTOEntry.pto_date <= pay_period.end_date)
         .order_by(PTOEntry.pto_date)
     )
     return list(result.scalars().all())
@@ -699,7 +764,7 @@ async def create_pto_entry(
 
     if timesheet.status not in ("draft", "rejected"):
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Cannot add PTO to timesheet with status '{timesheet.status}'",
         )
 
@@ -755,7 +820,7 @@ async def update_pto_entry(
 
     if timesheet.status not in ("draft", "rejected"):
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Cannot edit PTO in timesheet with status '{timesheet.status}'",
         )
 
@@ -817,7 +882,7 @@ async def delete_pto_entry(
 
     if timesheet.status not in ("draft", "rejected"):
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Cannot delete PTO from timesheet with status '{timesheet.status}'",
         )
 
