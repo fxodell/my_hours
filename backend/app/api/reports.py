@@ -946,8 +946,8 @@ async def _run_detail_report(
             ts = pto.timesheet
             rows.append(_build_pto_row(pto, ts, ts.employee, ts.pay_period))
 
-    # Sort: employee_name, work_date, entry_kind (pto after work), then description as tiebreaker
-    rows.sort(key=lambda r: (r["employee_name"], r["work_date"], r["entry_kind"], r["description"]))
+    # Sort: employee_name, work_date, entry_kind (pto after work), then structural work-context keys
+    rows.sort(key=lambda r: (r["employee_name"], r["work_date"], r["entry_kind"], r.get("client", ""), r.get("location", ""), r.get("site_code", ""), r.get("service_type", ""), r.get("work_mode", "")))
 
     # Build summary
     summary: dict[str, dict] = {}
