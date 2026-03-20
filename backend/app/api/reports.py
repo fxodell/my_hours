@@ -915,10 +915,86 @@ async def _run_detail_report(
     result = await db.execute(te_query)
     time_entries = result.unique().scalars().all()
 
-    rows: list[dict] = []
+    # Day-grouped detail (Option 1):
+    # One row per employee + calendar day + unique work context, excluding `description`
+    # from grouping/sort stability. `description` is aggregated deterministically.
+    work_groups: dict[tuple, dict] = {}
+    pto_groups: dict[tuple, dict] = {}
+
     for entry in time_entries:
         ts = entry.timesheet
-        rows.append(_build_entry_row(entry, ts, ts.employee, ts.pay_period))
+        emp = ts.employee
+        pp = ts.pay_period
+
+        client = entry.client.name if entry.client else "Unassigned"
+        location = entry.location.site_name if entry.location else "Unassigned"
+        region = entry.location.region if entry.location and entry.location.region else ""
+        site_code = entry.job_code.code if entry.job_code else ""
+        job_code_description = entry.job_code.description if entry.job_code else ""
+        service_type = entry.service_type.name if entry.service_type else ""
+        vehicle_reimbursement_tier = entry.vehicle_reimbursement_tier or ""
+
+        # NOTE: `description` intentionally excluded from grouping key.
+        group_key = (
+            str(emp.id),
+            entry.work_date.isoformat(),
+            client,
+            location,
+            region,
+            site_code,
+            job_code_description,
+            service_type,
+            entry.work_mode,
+            entry.is_billable,
+            entry.is_overtime,
+            vehicle_reimbursement_tier,
+            ts.status,
+            pp.start_date.isoformat(),
+            pp.end_date.isoformat(),
+            pp.period_group,
+        )
+
+        created_at = entry.created_at
+        desc = (entry.description or "").strip()
+
+        if group_key not in work_groups:
+            work_groups[group_key] = {
+                "entry_kind": "work",
+                "work_date": entry.work_date.isoformat(),
+                "employee_id": str(emp.id),
+                "employee_name": emp.full_name,
+                "client": client,
+                "location": location,
+                "region": region,
+                "site_code": site_code,
+                "job_code_description": job_code_description,
+                "service_type": service_type,
+                "work_mode": entry.work_mode,
+                "hours": 0.0,
+                "description_parts": [],  # (created_at, description)
+                "is_billable": entry.is_billable,
+                "is_overtime": entry.is_overtime,
+                "start_time": None,  # time object
+                "end_time": None,  # time object
+                "vehicle_reimbursement_tier": vehicle_reimbursement_tier,
+                "pto_type": "",
+                "timesheet_id": str(ts.id),
+                "timesheet_status": ts.status,
+                "pay_period_start": pp.start_date.isoformat(),
+                "pay_period_end": pp.end_date.isoformat(),
+                "period_group": pp.period_group,
+            }
+
+        g = work_groups[group_key]
+        g["hours"] += float(entry.hours)
+        if desc:
+            g["description_parts"].append((created_at, desc))
+
+        # Aggregate start/end times to be deterministic (min start, max end)
+        if entry.start_time and (g["start_time"] is None or entry.start_time < g["start_time"]):
+            g["start_time"] = entry.start_time
+        if entry.end_time and (g["end_time"] is None or entry.end_time > g["end_time"]):
+            g["end_time"] = entry.end_time
 
     # --- PTO entries ---
     if include_pto:
@@ -944,10 +1020,100 @@ async def _run_detail_report(
 
         for pto in pto_entries:
             ts = pto.timesheet
-            rows.append(_build_pto_row(pto, ts, ts.employee, ts.pay_period))
+            emp = ts.employee
+            pp = ts.pay_period
 
-    # Sort: employee_name, work_date, entry_kind (pto after work), then structural work-context keys
-    rows.sort(key=lambda r: (r["employee_name"], r["work_date"], r["entry_kind"], r.get("client", ""), r.get("location", ""), r.get("site_code", ""), r.get("service_type", ""), r.get("work_mode", "")))
+            # PTO has no work-context fields other than type.
+            pto_group_key = (
+                str(emp.id),
+                pto.pto_date.isoformat(),
+                pto.pto_type,
+                ts.status,
+                pp.start_date.isoformat(),
+                pp.end_date.isoformat(),
+                pp.period_group,
+            )
+
+            created_at = pto.created_at
+            desc = (pto.notes or "").strip()
+
+            if pto_group_key not in pto_groups:
+                pto_groups[pto_group_key] = {
+                    "entry_kind": "pto",
+                    "work_date": pto.pto_date.isoformat(),
+                    "employee_id": str(emp.id),
+                    "employee_name": emp.full_name,
+                    "client": "",
+                    "location": "",
+                    "region": "",
+                    "site_code": "",
+                    "job_code_description": "",
+                    "service_type": "",
+                    "work_mode": "",
+                    "hours": 0.0,
+                    "description_parts": [],  # (created_at, description)
+                    "is_billable": False,
+                    "is_overtime": False,
+                    "start_time": "",
+                    "end_time": "",
+                    "vehicle_reimbursement_tier": "",
+                    "pto_type": pto.pto_type,
+                    "timesheet_id": str(ts.id),
+                    "timesheet_status": ts.status,
+                    "pay_period_start": pp.start_date.isoformat(),
+                    "pay_period_end": pp.end_date.isoformat(),
+                    "period_group": pp.period_group,
+                }
+
+            g = pto_groups[pto_group_key]
+            g["hours"] += float(pto.hours)
+            if desc:
+                g["description_parts"].append((created_at, desc))
+
+    # Materialize grouped rows: aggregate description parts deterministically (created_at order)
+    rows: list[dict] = []
+    for g in work_groups.values():
+        parts = sorted(g.pop("description_parts"), key=lambda x: (x[0], x[1]))
+        seen_desc: set[str] = set()
+        desc_values: list[str] = []
+        for _, d in parts:
+            if d and d not in seen_desc:
+                seen_desc.add(d)
+                desc_values.append(d)
+        g["description"] = "; ".join(desc_values)
+        g["start_time"] = g["start_time"].isoformat() if g.get("start_time") else ""
+        g["end_time"] = g["end_time"].isoformat() if g.get("end_time") else ""
+        rows.append(g)
+
+    for g in pto_groups.values():
+        parts = sorted(g.pop("description_parts"), key=lambda x: (x[0], x[1]))
+        seen_desc: set[str] = set()
+        desc_values: list[str] = []
+        for _, d in parts:
+            if d and d not in seen_desc:
+                seen_desc.add(d)
+                desc_values.append(d)
+        g["description"] = "; ".join(desc_values)
+        rows.append(g)
+
+    # Sort: employee_name, work_date, entry_kind (pto after work), then structural work-context keys.
+    # IMPORTANT: description must not affect sort stability.
+    rows.sort(
+        key=lambda r: (
+            r["employee_name"],
+            r["work_date"],
+            r["entry_kind"],
+            r.get("client", ""),
+            r.get("location", ""),
+            r.get("region", ""),
+            r.get("site_code", ""),
+            r.get("service_type", ""),
+            r.get("work_mode", ""),
+            r.get("pto_type", ""),
+            r.get("is_billable", False),
+            r.get("is_overtime", False),
+        )
+    )
 
     # Build summary
     summary: dict[str, dict] = {}
@@ -1035,7 +1201,7 @@ async def employee_detail_report(
     format: str = "json",
 ):
     """
-    Line-level detail report for one or many employees (manager/admin only).
+    Day-grouped detail report for one or many employees (manager/admin only).
 
     Employee selection: provide `employee_id` (single UUID) or `employee_ids`
     (comma-separated UUIDs). Exactly one must be provided.
@@ -1100,7 +1266,7 @@ async def my_time_detail_report(
     format: str = "json",
 ):
     """
-    Self-service line-level detail report for the current user's own entries.
+    Self-service day-grouped detail report for the current user's own entries.
 
     Any authenticated employee can download their own time and PTO entries.
     No employee_id parameter — always scoped to the logged-in user.

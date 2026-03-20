@@ -67,6 +67,7 @@ export default function Reports() {
   const [myStartDate, setMyStartDate] = useState(format(subDays(new Date(), 30), 'yyyy-MM-dd'))
   const [myEndDate, setMyEndDate] = useState(format(new Date(), 'yyyy-MM-dd'))
   const [myStatus, setMyStatus] = useState('all')
+  const [myPayPeriodStatus, setMyPayPeriodStatus] = useState<'all' | 'open' | 'closed'>('all')
   const [myFormat, setMyFormat] = useState('csv')
   const [myIncludePto, setMyIncludePto] = useState(true)
 
@@ -77,6 +78,7 @@ export default function Reports() {
   const [detailEndDate, setDetailEndDate] = useState(format(new Date(), 'yyyy-MM-dd'))
   const [selectedEmployees, setSelectedEmployees] = useState<string[]>([])
   const [detailStatus, setDetailStatus] = useState('all')
+  const [detailPayPeriodStatus, setDetailPayPeriodStatus] = useState<'all' | 'open' | 'closed'>('all')
   const [detailFormat, setDetailFormat] = useState('csv')
   const [detailIncludePto, setDetailIncludePto] = useState(true)
 
@@ -149,6 +151,7 @@ export default function Reports() {
         startDate: myStartDate,
         endDate: myEndDate,
         timesheetStatus: myStatus !== 'all' ? myStatus : undefined,
+        payPeriodStatus: myPayPeriodStatus,
         includePto: myIncludePto,
         format: myFormat,
       })
@@ -174,6 +177,7 @@ export default function Reports() {
         startDate: detailStartDate,
         endDate: detailEndDate,
         timesheetStatus: detailStatus !== 'all' ? detailStatus : undefined,
+        payPeriodStatus: detailPayPeriodStatus,
         includePto: detailIncludePto,
         format: detailFormat,
       })
@@ -285,6 +289,19 @@ export default function Reports() {
           </div>
         </div>
 
+        <div>
+          <label className="label">Pay Period Filter</label>
+          <select
+            value={myPayPeriodStatus}
+            onChange={(e) => setMyPayPeriodStatus(e.target.value as any)}
+            className="input"
+          >
+            <option value="all">All Pay Periods</option>
+            <option value="open">Open Only</option>
+            <option value="closed">Closed Only</option>
+          </select>
+        </div>
+
         <label className="flex items-center gap-2 text-sm text-gray-700">
           <input
             type="checkbox"
@@ -311,7 +328,7 @@ export default function Reports() {
             <div>
               <h3 className="font-semibold text-gray-900 text-lg">Employee Detail Report</h3>
               <p className="text-sm text-gray-500">
-                Line-level time entries for selected employees (includes draft timesheets)
+                Day-grouped time entries for selected employees (includes draft timesheets)
               </p>
             </div>
 
@@ -336,7 +353,7 @@ export default function Reports() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               <div>
                 <label className="label">Status Filter</label>
                 <select
@@ -349,6 +366,18 @@ export default function Reports() {
                   <option value="submitted">Submitted</option>
                   <option value="approved">Approved</option>
                   <option value="rejected">Rejected</option>
+                </select>
+              </div>
+              <div>
+                <label className="label">Pay Period Filter</label>
+                <select
+                  value={detailPayPeriodStatus}
+                  onChange={(e) => setDetailPayPeriodStatus(e.target.value as any)}
+                  className="input"
+                >
+                  <option value="all">All Pay Periods</option>
+                  <option value="open">Open Only</option>
+                  <option value="closed">Closed Only</option>
                 </select>
               </div>
               <div>

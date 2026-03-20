@@ -4,7 +4,7 @@
 
 ## Relationship to other reports (do not merge endpoints)
 
-- **This prompt** — **Line-level**: typically **one row per `TimeEntry`** (and optional **one row per `PTOEntry`**), with status filters. Supports **draft** and **multi-employee**.
+- **This prompt** — **Day-grouped detail (Option 1)**: typically **one row per employee per calendar day per unique work context**. The grouping/sort key should **exclude `description`**; hours are summed across entries in the group, and `description` values are aggregated within that same group (deterministic order). Optional PTO rows follow the same day grouping idea. Supports **draft** and **multi-employee**.
 - **Biweekly payroll rollup** (`docs/prompts/PROMPT_PAYROLL_BIWEEKLY_ROLLUP.md`) — **Aggregated**: one row per employee, **14 day columns** + period total; **approved** timesheets only. Keep endpoints **separate**.
 
 ## Context
@@ -26,14 +26,14 @@
    - **Explicit “all employees” (optional):** Only if product requires it: separate flag `all_employees=true`, restricted to **`CurrentAdmin`** only, with **max date span** enforced; document in ADR.
    - **Serialization:** Pick **one** style and document in OpenAPI: **repeated** query param (`employee_ids=uuid1&employee_ids=uuid2`) *or* **comma-separated** (`employee_ids=u1,u2`) — note client quirks (e.g. axios array encoding).
 4. **Date range:** Required `start_date`, `end_date` (inclusive). **Validate** `start_date <= end_date`. Enforce **maximum span** (e.g. 366 days) and optional **maximum number of employees** per request (e.g. 50) — return **400** with a clear message when exceeded.
-5. **Row granularity (required):** **One row per `TimeEntry`** matching filters (not one row per calendar day aggregated). Optional **one row per `PTOEntry`** when `include_pto=true`. State `entry_kind=work|pto` on each row.
+5. **Row granularity (required):** **Day grouping (Option 1)**: output **one row per employee per calendar day per unique work context** (not one row per `TimeEntry`). A “work context” grouping key should include structural fields such as `client`, `location/site`, `site_code` (job code/AFE), `service_type`, and `work_mode`, but **must not** include `description` in the grouping/sort key. Sum `hours` for the group. Aggregate `description` across all entries that fall into the same day/context group (e.g. join distinct values with `;` in deterministic order such as `TimeEntry.created_at`). Optional PTO rows: one row per employee per `pto_date` per unique PTO context (e.g. `pto_type`), with PTO `description` aggregated similarly.
 6. **Timesheet / period filters**
    - **`timesheet_status`:** Comma-separated or repeated: `draft`, `submitted`, `approved`, `rejected`, or `all`. Default for **this** endpoint: **`all`** (explicitly different from payroll). Payroll-style consumers should pass `approved` only.
    - **`pay_period_status` (optional):** `open`, `closed`, or `all` — filter via join to `PayPeriod`.
    - **Preset (optional):** `closed_payroll=true` — shorthand for “approved timesheets in **closed** pay periods” (define exact SQL in ADR).
-7. **Columns (minimum per work row):** `work_date`, `employee_id`, `employee_name`, `client` (name), `location` / site (`site_name`, optional `region`), `site_code` (`JobCode.code`), `job_code_description`, `service_type`, `work_mode`, `hours`, `description`, `is_billable`, `is_overtime`, optional `start_time`, `end_time`, `vehicle_reimbursement_tier`, `timesheet_id`, `timesheet_status`, `pay_period_start`, `pay_period_end`, `period_group`.
+7. **Columns (minimum per work row):** `work_date`, `employee_id`, `employee_name`, `client` (name), `location` / site (`site_name`, optional `region`), `site_code` (`JobCode.code`), `job_code_description`, `service_type`, `work_mode`, `hours` (**summed for the day/context group**), `description` (**aggregated for the group**), `is_billable`, `is_overtime`, optional `start_time` / `end_time` (if kept, define how they’re aggregated), `vehicle_reimbursement_tier`, `timesheet_id`, `timesheet_status`, `pay_period_start`, `pay_period_end`, `period_group`.
 8. **PTO rows:** Align columns; use placeholders or `entry_kind=pto` + `pto_type` where work fields do not apply.
-9. **Ordering:** `employee_name` (or id), then `date`, then `entry_kind`, then stable tiebreaker (`created_at` or entry id).
+9. **Ordering:** `employee_name` (or id), then `work_date`, then `entry_kind`, then the structural work-context keys (client/location/site_code/service_type/work_mode), then stable tiebreaker (`created_at` for how aggregated descriptions are joined, if applicable). **`description` must not** be used as a key for ordering/grouping stability.
 10. **Totals (JSON):** `summary` with per-employee subtotals and grand totals (`total_work_hours`, `total_pto_hours`, `total_hours`). **CSV/Excel:** Prefer a **second sheet** (“Summary”) in Excel; for CSV, either append total rows (document format) or export summary as a separate download in a later iteration.
 11. **Excel layout (multi-employee):** Prefer **one worksheet per employee** *or* a single sheet with all rows sorted by employee — pick one in ADR (single sheet is simpler for pandas; per-employee sheets are easier for HR).
 12. **Download filename:** `Content-Disposition` e.g. `employee_detail_{start}_{end}.xlsx` or include first employee id/name when single-employee.
@@ -82,7 +82,7 @@
 ## Acceptance
 
 - Managers/admins: **one or many** employees, date range, **`timesheet_status` including `draft`** when selected.
-- Employees: download **only their** line-level entries; **403** on cross-user access.
+- Employees: download **only their** day-grouped entries (work + optional PTO); **403** on cross-user access.
 - Limits: **max date span** and **max employees** enforced (or admin-only `all_employees` with limits).
 - Tests cover auth, filters, and empty result.
 - Docs + ADR updated per guardrails.

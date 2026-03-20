@@ -46,6 +46,40 @@ async function fetchApi<T>(
   return response.json()
 }
 
+async function fetchApiBlob(
+  endpoint: string,
+  options: RequestInit = {}
+): Promise<Blob> {
+  const token = localStorage.getItem('token')
+
+  const headers: Record<string, string> = {
+    ...(options.headers as Record<string, string>),
+  }
+
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
+
+  const response = await fetch(`${API_BASE}${endpoint}`, {
+    ...options,
+    headers,
+  })
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      localStorage.removeItem('token')
+      window.location.href = '/login'
+    }
+
+    const err = await response
+      .json()
+      .catch(() => ({ detail: 'An error occurred' }))
+    throw new ApiError(response.status, err.detail || 'An error occurred')
+  }
+
+  return response.blob()
+}
+
 // Auth
 export async function login(email: string, password: string): Promise<{ access_token: string }> {
   const formData = new URLSearchParams()
@@ -370,42 +404,18 @@ export async function deleteJobCode(locationId: string, jobCodeId: string): Prom
 
 // Reports
 export async function getPayrollReport(payPeriodId: string): Promise<Blob> {
-  const token = localStorage.getItem('token')
-  const response = await fetch(`/api/reports/payroll?pay_period_id=${payPeriodId}&format=csv`, {
-    headers: { Authorization: `Bearer ${token}` },
-  })
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({ detail: 'Failed to download report' }))
-    throw new Error(err.detail || 'Failed to download report')
-  }
-  return response.blob()
+  return fetchApiBlob(`/reports/payroll?pay_period_id=${payPeriodId}&format=csv`)
 }
 
 export async function getBillingReport(startDate?: string, endDate?: string): Promise<Blob> {
-  const token = localStorage.getItem('token')
   const qs = new URLSearchParams({ format: 'csv' })
   if (startDate) qs.set('start_date', startDate)
   if (endDate) qs.set('end_date', endDate)
-  const response = await fetch(`/api/reports/billing?${qs}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  })
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({ detail: 'Failed to download report' }))
-    throw new Error(err.detail || 'Failed to download report')
-  }
-  return response.blob()
+  return fetchApiBlob(`/reports/billing?${qs}`)
 }
 
 export async function getEngageExport(payPeriodId: string): Promise<Blob> {
-  const token = localStorage.getItem('token')
-  const response = await fetch(`/api/reports/engage-export?pay_period_id=${payPeriodId}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  })
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({ detail: 'Failed to download Engage export' }))
-    throw new Error(err.detail || 'Failed to download Engage export')
-  }
-  return response.blob()
+  return fetchApiBlob(`/reports/engage-export?pay_period_id=${payPeriodId}`)
 }
 
 export async function getEmployeeDetailReport(params: {
@@ -413,10 +423,10 @@ export async function getEmployeeDetailReport(params: {
   startDate: string
   endDate: string
   timesheetStatus?: string
+  payPeriodStatus?: string
   includePto?: boolean
   format?: string
 }): Promise<Blob> {
-  const token = localStorage.getItem('token')
   const fmt = params.format || 'csv'
   const qs = new URLSearchParams({
     employee_ids: params.employeeIds.join(','),
@@ -426,24 +436,20 @@ export async function getEmployeeDetailReport(params: {
     include_pto: String(params.includePto ?? true),
   })
   if (params.timesheetStatus) qs.set('timesheet_status', params.timesheetStatus)
-  const response = await fetch(`/api/reports/employee-detail?${qs}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  })
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({ detail: 'Download failed' }))
-    throw new Error(err.detail || 'Failed to download report')
+  if (params.payPeriodStatus && params.payPeriodStatus !== 'all') {
+    qs.set('pay_period_status', params.payPeriodStatus)
   }
-  return response.blob()
+  return fetchApiBlob(`/reports/employee-detail?${qs}`)
 }
 
 export async function getMyTimeDetailReport(params: {
   startDate: string
   endDate: string
   timesheetStatus?: string
+  payPeriodStatus?: string
   includePto?: boolean
   format?: string
 }): Promise<Blob> {
-  const token = localStorage.getItem('token')
   const fmt = params.format || 'csv'
   const qs = new URLSearchParams({
     start_date: params.startDate,
@@ -452,14 +458,10 @@ export async function getMyTimeDetailReport(params: {
     include_pto: String(params.includePto ?? true),
   })
   if (params.timesheetStatus) qs.set('timesheet_status', params.timesheetStatus)
-  const response = await fetch(`/api/reports/my-time-detail?${qs}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  })
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({ detail: 'Download failed' }))
-    throw new Error(err.detail || 'Failed to download report')
+  if (params.payPeriodStatus && params.payPeriodStatus !== 'all') {
+    qs.set('pay_period_status', params.payPeriodStatus)
   }
-  return response.blob()
+  return fetchApiBlob(`/reports/my-time-detail?${qs}`)
 }
 
 export async function getBiweeklyPayrollReport(params: {
@@ -467,21 +469,13 @@ export async function getBiweeklyPayrollReport(params: {
   anchorStartDate: string
   format?: string
 }): Promise<Blob> {
-  const token = localStorage.getItem('token')
   const fmt = params.format || 'csv'
   const qs = new URLSearchParams({
     period_group: params.periodGroup,
     anchor_start_date: params.anchorStartDate,
     format: fmt,
   })
-  const response = await fetch(`/api/reports/payroll-biweekly?${qs}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  })
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({ detail: 'Download failed' }))
-    throw new Error(err.detail || 'Failed to download report')
-  }
-  return response.blob()
+  return fetchApiBlob(`/reports/payroll-biweekly?${qs}`)
 }
 
 // Update PTO entry
