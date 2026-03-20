@@ -172,6 +172,7 @@ export default function TimeEntryEdit() {
       api.updateTimeEntry(timesheetId!, entryId!, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['timeEntries', timesheetId] })
+      queryClient.invalidateQueries({ queryKey: ['timesheet', timesheetId] })
       queryClient.invalidateQueries({ queryKey: ['currentTimesheet'] })
       navigate(`/timesheets/${timesheetId}`)
     },

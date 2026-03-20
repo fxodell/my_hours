@@ -83,7 +83,8 @@ export default function PTOEntry() {
     mutationFn: (data: FormData) =>
       api.createPTOEntry(timesheet!.id, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['ptoEntries'] })
+      queryClient.invalidateQueries({ queryKey: ['ptoEntries', timesheet!.id] })
+      queryClient.invalidateQueries({ queryKey: ['timesheet', timesheet!.id] })
       queryClient.invalidateQueries({ queryKey: ['currentTimesheet'] })
       navigate('/')
     },

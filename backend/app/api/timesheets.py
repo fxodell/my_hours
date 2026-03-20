@@ -326,21 +326,27 @@ async def submit_timesheet(
             detail="Can only submit your own timesheet",
         )
 
-    if timesheet.status != "draft":
+    if timesheet.status not in ("draft", "rejected"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Cannot submit timesheet with status '{timesheet.status}'",
         )
 
-    # Calculate total hours
+    # Calculate total hours (work + PTO) for notifications
     hours_result = await db.execute(
         select(func.coalesce(func.sum(TimeEntry.hours), 0))
         .where(TimeEntry.timesheet_id == timesheet_id)
     )
-    total_hours = float(hours_result.scalar())
+    pto_hours_result = await db.execute(
+        select(func.coalesce(func.sum(PTOEntry.hours), 0))
+        .where(PTOEntry.timesheet_id == timesheet_id)
+    )
+    total_hours = float(hours_result.scalar() or 0) + float(pto_hours_result.scalar() or 0)
 
     timesheet.status = "submitted"
     timesheet.submitted_at = datetime.now(timezone.utc)
+    # Clear rejection metadata when submitting.
+    timesheet.rejection_reason = None
 
     await db.commit()
     await db.refresh(timesheet)
@@ -606,6 +612,12 @@ async def update_time_entry(
             detail=f"Cannot edit entries in timesheet with status '{timesheet.status}'",
         )
 
+    # Keep workflow consistent with create endpoints:
+    # when editing a rejected timesheet, move it back to draft.
+    if timesheet.status == "rejected":
+        timesheet.status = "draft"
+        timesheet.rejection_reason = None
+
     # Validate work_date if provided
     if entry_data.work_date is not None:
         if entry_data.work_date < pay_period.start_date or entry_data.work_date > pay_period.end_date:
@@ -668,6 +680,12 @@ async def delete_time_entry(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Cannot delete entries from timesheet with status '{timesheet.status}'",
         )
+
+    # Keep workflow consistent with create endpoints:
+    # when deleting from a rejected timesheet, move it back to draft.
+    if timesheet.status == "rejected":
+        timesheet.status = "draft"
+        timesheet.rejection_reason = None
 
     result = await db.execute(
         select(TimeEntry)
@@ -824,6 +842,12 @@ async def update_pto_entry(
             detail=f"Cannot edit PTO in timesheet with status '{timesheet.status}'",
         )
 
+    # Keep workflow consistent with create endpoints:
+    # when editing a rejected timesheet, move it back to draft.
+    if timesheet.status == "rejected":
+        timesheet.status = "draft"
+        timesheet.rejection_reason = None
+
     # Validate pto_date if provided
     if entry_data.pto_date is not None:
         if entry_data.pto_date < pay_period.start_date or entry_data.pto_date > pay_period.end_date:
@@ -885,6 +909,12 @@ async def delete_pto_entry(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Cannot delete PTO from timesheet with status '{timesheet.status}'",
         )
+
+    # Keep workflow consistent with create endpoints:
+    # when deleting from a rejected timesheet, move it back to draft.
+    if timesheet.status == "rejected":
+        timesheet.status = "draft"
+        timesheet.rejection_reason = None
 
     result = await db.execute(
         select(PTOEntry)

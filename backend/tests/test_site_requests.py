@@ -1,20 +1,24 @@
 """Tests for site request endpoints."""
 
 import pytest
+import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import delete
 
 from app.models.client import Client
 from app.models.location import Location
 from app.models.job_code import JobCode
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def test_client_record(db_session: AsyncSession) -> Client:
     """Create a test client for site requests."""
+    # Ensure unique constraint on Client.name does not fail across tests.
+    await db_session.execute(delete(Client).where(Client.name == "Test Oil Co"))
     client = Client(name="Test Oil Co", industry="Oil & Gas", is_active=True)
     db_session.add(client)
-    await db_session.commit()
+    await db_session.flush()
     await db_session.refresh(client)
     return client
 

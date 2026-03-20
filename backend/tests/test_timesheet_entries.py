@@ -1,21 +1,34 @@
 from datetime import date, timedelta
 
 import pytest
+import pytest_asyncio
 
+from sqlalchemy import delete
 from app.models.pay_period import PayPeriod
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def active_pay_period(db_session, test_user):
     today = date.today()
+    start_date = today - timedelta(days=7)
+    end_date = today + timedelta(days=6)
+
+    # Avoid UNIQUE constraint failures when the DB is reused across tests.
+    await db_session.execute(
+        delete(PayPeriod).where(
+            PayPeriod.period_group == test_user.pay_period_group,
+            PayPeriod.start_date == start_date,
+        )
+    )
+
     pay_period = PayPeriod(
         period_group=test_user.pay_period_group,
-        start_date=today - timedelta(days=7),
-        end_date=today + timedelta(days=6),
+        start_date=start_date,
+        end_date=end_date,
         status="open",
     )
     db_session.add(pay_period)
-    await db_session.commit()
+    await db_session.flush()
     await db_session.refresh(pay_period)
     return pay_period
 
@@ -221,7 +234,7 @@ async def test_pto_mutations_blocked_when_submitted(client, auth_headers, active
             "hours": 8,
         },
     )
-    assert create_after_submit.status_code == 400
+    assert create_after_submit.status_code == 403
 
     # Try to update PTO after submit
     update_after_submit = await client.patch(
@@ -229,11 +242,11 @@ async def test_pto_mutations_blocked_when_submitted(client, auth_headers, active
         headers=auth_headers,
         json={"hours": 6},
     )
-    assert update_after_submit.status_code == 400
+    assert update_after_submit.status_code == 403
 
     # Try to delete PTO after submit
     delete_after_submit = await client.delete(
         f"/api/timesheets/{timesheet_id}/pto/{pto_id}",
         headers=auth_headers,
     )
-    assert delete_after_submit.status_code == 400
+    assert delete_after_submit.status_code == 403

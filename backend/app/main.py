@@ -47,3 +47,14 @@ async def root():
         "version": "0.1.0",
         "docs": "/api/docs",
     }
+
+
+@app.get("/api")
+async def api_root():
+    # Provide a stable "API root" endpoint for health/test clients.
+    return {
+        "name": settings.app_name,
+        "version": "0.1.0",
+        "docs": "/api/docs",
+        "message": "API root",
+    }
