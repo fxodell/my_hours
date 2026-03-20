@@ -13,6 +13,7 @@ class ServiceType(Base, UUIDMixin, TimestampMixin):
 
     name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
     is_billable: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     # Relationships
     time_entries: Mapped[list["TimeEntry"]] = relationship(back_populates="service_type")

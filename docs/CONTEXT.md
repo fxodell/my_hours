@@ -96,7 +96,7 @@ Access model:
 - **Admin:** manager capabilities plus employee/client/service/location/pay-period administration; can reset any employee's password via `POST /api/auth/admin-reset-password` (from the Employees page, key icon per employee opens a modal)
 
 Soft delete pattern:
-- Employees, Locations, and JobCodes use soft delete (set `is_active = false`) rather than hard delete
+- Employees, Locations, JobCodes, Clients, and ServiceTypes use soft delete (set `is_active = false`) rather than hard delete
 - `DELETE` endpoints for these resources deactivate the record; list endpoints filter `active_only=true` by default
 
 Pay period model:
@@ -119,8 +119,8 @@ Pay period model:
 ## Testing State
 
 - Backend tests currently run against in-memory SQLite (`backend/tests/conftest.py`)
-- Test coverage includes: auth, health, time entry CRUD (past-day, out-of-period, post-submit blocking), PTO entry CRUD (date validation, post-submit blocking)
-- Known issue: session-scoped engine with committed fixtures causes unique constraint failures when running multiple test files together; run individual test files or functions in isolation
+- Test coverage includes: auth, health, time entry CRUD (past-day, out-of-period, post-submit blocking), PTO entry CRUD (date validation, post-submit blocking), employee detail reports, biweekly payroll reports, site requests
+- Engine and fixtures are function-scoped: each test gets a fresh database — all 42 tests pass together without isolation issues
 
 ## Frontend Patterns and Conventions
 
@@ -133,7 +133,4 @@ Pay period model:
 ## Known Gaps / Follow-ups
 
 - Email notifications are currently logged in development mode rather than sent through an SMTP/provider integration
-- Clients and ServiceTypes use hard delete (data loss risk); should migrate to soft delete pattern matching Employees/Locations/JobCodes
-- No pagination on client and location list endpoints (all records returned)
 - Password reset tokens are gated behind `settings.debug` for logging but no production email delivery yet
-- Test infrastructure has session-scoped engine issue (see Testing State section)

@@ -17,6 +17,8 @@ async def list_locations(
     current_user: CurrentUser,
     client_id: UUID | None = None,
     active_only: bool = True,
+    limit: int = 200,
+    offset: int = 0,
 ) -> list[Location]:
     query = select(Location)
 
@@ -26,7 +28,7 @@ async def list_locations(
     if active_only:
         query = query.where(Location.is_active == True)
 
-    query = query.order_by(Location.region, Location.site_name)
+    query = query.order_by(Location.region, Location.site_name).offset(offset).limit(limit)
 
     result = await db.execute(query)
     return list(result.scalars().all())

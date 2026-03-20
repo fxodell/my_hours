@@ -5,9 +5,9 @@
 - [ ] Add API integration tests for timesheet submit/approve/reject/reopen lifecycle
 - [ ] Add API integration tests for report export endpoints (CSV and Excel)
 - [ ] Add tests for admin CRUD endpoints (clients, service types, employees, locations, pay periods)
-- [ ] Migrate Clients and ServiceTypes from hard delete to soft delete (add `is_active` flag, matching Employee/Location/JobCode pattern)
-- [ ] Add pagination (limit/offset) to client and location list endpoints
-- [ ] Fix test infrastructure: replace session-scoped engine with function-scoped transactions to avoid unique constraint collisions
+- [x] Migrate Clients and ServiceTypes from hard delete to soft delete (add `is_active` flag, matching Employee/Location/JobCode pattern)
+- [x] Add pagination (limit/offset) to client and location list endpoints
+- [x] Fix test infrastructure: replace session-scoped engine with function-scoped transactions to avoid unique constraint collisions
 
 ## Backlog
 - [ ] Replace development email logger with configurable SMTP/provider implementation

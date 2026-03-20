@@ -93,7 +93,7 @@ Tests use **in-memory SQLite** (aiosqlite) instead of PostgreSQL. Key fixtures i
 - `test_user` / `test_manager` - Pre-created employees
 - `auth_headers` / `manager_auth_headers` - JWT auth headers for test users
 
-**Known issue:** The engine fixture is session-scoped but `test_user`/`test_manager` fixtures commit data, so tests that share these fixtures can fail when run together due to unique constraint violations. Run individual test files or functions in isolation if needed.
+All fixtures are function-scoped: each test gets a fresh in-memory SQLite database, so tests can run together without isolation issues.
 
 ## Data Model
 
