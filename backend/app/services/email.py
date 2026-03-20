@@ -143,5 +143,75 @@ If you didn't request this, you can safely ignore this email.
         await EmailService.send_email(email, subject, body)
 
 
+    @staticmethod
+    async def send_site_request_submitted(
+        employee_name: str,
+        client_name: str,
+        site_name: str,
+    ) -> None:
+        """Notify managers when a site request is submitted."""
+        subject = f"New Site Request: {site_name}"
+        body = f"""
+A new site request has been submitted.
+
+Employee: {employee_name}
+Client: {client_name}
+Site: {site_name}
+
+Please review at your earliest convenience.
+
+- MyHours System
+        """.strip()
+
+        # In production, this would email all managers
+        await EmailService.send_email("managers@myhours.local", subject, body)
+
+    @staticmethod
+    async def send_site_request_approved(
+        employee_email: str,
+        employee_name: str,
+        site_name: str,
+        approved_by: str,
+    ) -> None:
+        """Notify employee when their site request is approved."""
+        subject = f"Site Request Approved: {site_name}"
+        body = f"""
+Hello {employee_name},
+
+Your site request for "{site_name}" has been approved by {approved_by}.
+
+The site is now available for time entry.
+
+- MyHours System
+        """.strip()
+
+        await EmailService.send_email(employee_email, subject, body)
+
+    @staticmethod
+    async def send_site_request_rejected(
+        employee_email: str,
+        employee_name: str,
+        site_name: str,
+        rejected_by: str,
+        reason: str,
+    ) -> None:
+        """Notify employee when their site request is rejected."""
+        subject = f"Site Request Declined: {site_name}"
+        body = f"""
+Hello {employee_name},
+
+Your site request for "{site_name}" was not approved.
+
+Declined by: {rejected_by}
+Reason: {reason}
+
+If you have questions, please reach out to your manager.
+
+- MyHours System
+        """.strip()
+
+        await EmailService.send_email(employee_email, subject, body)
+
+
 # Singleton instance
 email_service = EmailService()

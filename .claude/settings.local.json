@@ -23,7 +23,12 @@
       "Bash(python3:*)",
       "Bash(npx tsc:*)",
       "Bash(sudo docker:*)",
-      "Bash(sudo:*)"
+      "Bash(sudo:*)",
+      "Bash(alembic revision:*)",
+      "Bash(make dev-frontend:*)",
+      "Bash(ls:*)",
+      "Read(//var/www/html/**)",
+      "Read(//opt/myhours/**)"
     ]
   }
 }

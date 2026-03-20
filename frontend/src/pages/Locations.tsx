@@ -74,6 +74,27 @@ export default function Locations() {
     },
   })
 
+  const deleteLocationMutation = useMutation({
+    mutationFn: (id: string) => api.deleteLocation(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['locations'] })
+    },
+    onError: (err) => {
+      setError(err instanceof Error ? err.message : 'Failed to deactivate location')
+    },
+  })
+
+  const deleteJobCodeMutation = useMutation({
+    mutationFn: ({ locationId, jobCodeId }: { locationId: string; jobCodeId: string }) =>
+      api.deleteJobCode(locationId, jobCodeId),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['jobCodes', variables.locationId] })
+    },
+    onError: (err) => {
+      setError(err instanceof Error ? err.message : 'Failed to deactivate job code')
+    },
+  })
+
   const createJobCodeMutation = useMutation({
     mutationFn: ({ locationId, data }: { locationId: string; data: JobCodeFormData }) =>
       api.createJobCode(locationId, {
@@ -275,14 +296,32 @@ export default function Locations() {
                         <p className="text-sm text-gray-500 ml-8">{loc.region}</p>
                       )}
                     </div>
-                    <button
-                      onClick={() => handleEdit(loc)}
-                      className="p-2 text-gray-500 hover:text-primary-600 hover:bg-gray-100 rounded-lg"
-                    >
-                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                      </svg>
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => handleEdit(loc)}
+                        className="p-2 text-gray-500 hover:text-primary-600 hover:bg-gray-100 rounded-lg"
+                        title="Edit"
+                      >
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        </svg>
+                      </button>
+                      {loc.is_active && (
+                        <button
+                          onClick={() => {
+                            if (confirm(`Deactivate location "${loc.site_name}"?`)) {
+                              deleteLocationMutation.mutate(loc.id)
+                            }
+                          }}
+                          className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg"
+                          title="Deactivate"
+                        >
+                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -300,6 +339,7 @@ export default function Locations() {
                     onSubmit={(e) => handleJobCodeSubmit(e, loc.id)}
                     isPending={createJobCodeMutation.isPending}
                     error={error}
+                    onDeleteJobCode={(jobCodeId) => deleteJobCodeMutation.mutate({ locationId: loc.id, jobCodeId })}
                   />
                 )}
               </div>
@@ -320,6 +360,7 @@ function JobCodeSection({
   onSubmit,
   isPending,
   error,
+  onDeleteJobCode,
 }: {
   locationId: string
   showForm: boolean
@@ -329,6 +370,7 @@ function JobCodeSection({
   onSubmit: (e: React.FormEvent) => void
   isPending: boolean
   error: string
+  onDeleteJobCode: (jobCodeId: string) => void
 }) {
   const { data: jobCodes, isLoading } = useQuery({
     queryKey: ['jobCodes', locationId],
@@ -409,7 +451,19 @@ function JobCodeSection({
                   <span className="text-gray-600">{jc.description}</span>
                 )}
               </div>
-              {!jc.is_active && (
+              {jc.is_active ? (
+                <button
+                  onClick={() => {
+                    if (confirm(`Deactivate job code "${jc.code}"?`)) {
+                      onDeleteJobCode(jc.id)
+                    }
+                  }}
+                  className="text-xs text-gray-400 hover:text-red-600"
+                  title="Deactivate"
+                >
+                  Deactivate
+                </button>
+              ) : (
                 <span className="text-xs text-gray-400">Inactive</span>
               )}
             </div>

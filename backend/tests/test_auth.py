@@ -62,7 +62,7 @@ async def test_change_password(client: AsyncClient, test_user, auth_headers):
     """Test changing password."""
     response = await client.post(
         "/api/auth/change-password",
-        params={"current_password": "testpassword", "new_password": "newpassword"},
+        json={"current_password": "testpassword", "new_password": "newpassword"},
         headers=auth_headers,
     )
     assert response.status_code == 200
@@ -80,7 +80,7 @@ async def test_change_password_wrong_current(client: AsyncClient, test_user, aut
     """Test changing password with wrong current password."""
     response = await client.post(
         "/api/auth/change-password",
-        params={"current_password": "wrongpassword", "new_password": "newpassword"},
+        json={"current_password": "wrongpassword", "new_password": "newpassword"},
         headers=auth_headers,
     )
     assert response.status_code == 400

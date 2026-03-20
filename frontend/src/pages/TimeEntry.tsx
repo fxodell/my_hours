@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { format, parseISO, differenceInCalendarDays } from 'date-fns'
 import * as api from '../services/api'
-import type { TimeEntryCreate } from '../types'
+import type { TimeEntryCreate, SiteRequestCreate } from '../types'
 import SearchableSelect from '../components/SearchableSelect'
 import { getEntryDateMax, isTimesheetEditable, isTimesheetReadOnly } from '../timesheetStatus'
 
@@ -42,6 +42,99 @@ function calcHoursFromTimes(start: string, end: string): number | null {
   const diff = (eh * 60 + em - (sh * 60 + sm)) / 60
   if (diff <= 0) return null
   return Math.round(diff * 4) / 4 // round to nearest 0.25
+}
+
+function SiteRequestInlineForm({
+  clientId,
+  isPending,
+  onSubmit,
+  onCancel,
+}: {
+  clientId: string
+  isPending: boolean
+  onSubmit: (data: SiteRequestCreate) => void
+  onCancel: () => void
+}) {
+  const [siteName, setSiteName] = useState('')
+  const [region, setRegion] = useState('')
+  const [jobCode, setJobCode] = useState('')
+  const [notes, setNotes] = useState('')
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!siteName.trim()) return
+    onSubmit({
+      client_id: clientId,
+      site_name: siteName.trim(),
+      region: region.trim() || undefined,
+      job_code: jobCode.trim() || undefined,
+      notes: notes.trim() || undefined,
+    })
+  }
+
+  return (
+    <div className="space-y-2">
+      <div>
+        <label className="text-xs font-medium text-gray-700">Site Name *</label>
+        <input
+          type="text"
+          value={siteName}
+          onChange={(e) => setSiteName(e.target.value)}
+          className="input text-sm"
+          placeholder="e.g. Well Pad A-14"
+          required
+        />
+      </div>
+      <div>
+        <label className="text-xs font-medium text-gray-700">Region</label>
+        <input
+          type="text"
+          value={region}
+          onChange={(e) => setRegion(e.target.value)}
+          className="input text-sm"
+          placeholder="e.g. Alpine High"
+        />
+      </div>
+      <div>
+        <label className="text-xs font-medium text-gray-700">AFE / Job Code</label>
+        <input
+          type="text"
+          value={jobCode}
+          onChange={(e) => setJobCode(e.target.value)}
+          className="input text-sm"
+          placeholder="e.g. AFE-12345"
+        />
+      </div>
+      <div>
+        <label className="text-xs font-medium text-gray-700">Notes</label>
+        <input
+          type="text"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          className="input text-sm"
+          placeholder="e.g. new well starting next week"
+        />
+      </div>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={handleSubmit}
+          disabled={!siteName.trim() || isPending}
+          className="btn btn-primary text-sm flex-1"
+        >
+          {isPending ? 'Submitting...' : 'Submit Request'}
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="btn btn-secondary text-sm"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
 }
 
 export default function TimeEntry() {
@@ -192,6 +285,24 @@ export default function TimeEntry() {
 
     createEntryMutation.mutate(entry)
   }
+
+  const [showSiteRequest, setShowSiteRequest] = useState(false)
+  const [siteRequestSent, setSiteRequestSent] = useState(false)
+
+  const siteRequestMutation = useMutation({
+    mutationFn: api.createSiteRequest,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['siteRequests'] })
+      setShowSiteRequest(false)
+      setSiteRequestSent(true)
+    },
+  })
+
+  // Reset site request state when client changes
+  useEffect(() => {
+    setShowSiteRequest(false)
+    setSiteRequestSent(false)
+  }, [selectedClientId])
 
   const canEdit = isTimesheetEditable(timesheet?.status)
   const maxWorkDate = getEntryDateMax(payPeriod?.end_date)
@@ -410,20 +521,77 @@ export default function TimeEntry() {
           </select>
         </div>
 
-        {/* Location - Only show when client has locations */}
-        {selectedClientId && locations && locations.length > 0 && (
+        {/* Location - Show when client is selected */}
+        {selectedClientId && (
           <div>
             <label className="label">Location</label>
-            <SearchableSelect
-              options={(locations || []).map((l) => ({
-                value: l.id,
-                label: `${l.region ? `${l.region} - ` : ''}${l.site_name}`,
-              }))}
-              value={watch('location_id')}
-              onChange={(val) => setValue('location_id', val)}
-              placeholder="Select a location"
-              disabled={!canEdit}
-            />
+            {locations && locations.length > 0 ? (
+              <SearchableSelect
+                options={(locations || []).map((l) => ({
+                  value: l.id,
+                  label: `${l.region ? `${l.region} - ` : ''}${l.site_name}`,
+                }))}
+                value={watch('location_id')}
+                onChange={(val) => setValue('location_id', val)}
+                placeholder="Select a location"
+                disabled={!canEdit}
+              />
+            ) : (
+              <p className="text-sm text-gray-500 py-2">No locations for this client yet.</p>
+            )}
+
+            {/* Site request success message */}
+            {siteRequestSent && (
+              <div className="bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded-lg text-sm mt-2 flex items-center gap-2">
+                <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                Site request submitted. Your manager will review it shortly.
+              </div>
+            )}
+
+            {/* Request new site toggle */}
+            {!showSiteRequest && !siteRequestSent && (
+              <button
+                type="button"
+                onClick={() => setShowSiteRequest(true)}
+                className="text-sm text-primary-600 mt-1 flex items-center gap-1"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                </svg>
+                Can't find your site? Request a new one
+              </button>
+            )}
+
+            {/* Inline site request form */}
+            {showSiteRequest && (
+              <div className="mt-2 border border-primary-200 bg-primary-50 rounded-lg p-3 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-medium text-sm text-gray-900">Request New Site</h4>
+                  <button
+                    type="button"
+                    onClick={() => setShowSiteRequest(false)}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+
+                {siteRequestMutation.isError && (
+                  <p className="text-red-600 text-sm">{(siteRequestMutation.error as Error).message}</p>
+                )}
+
+                <SiteRequestInlineForm
+                  clientId={selectedClientId}
+                  isPending={siteRequestMutation.isPending}
+                  onSubmit={(data) => siteRequestMutation.mutate(data)}
+                  onCancel={() => setShowSiteRequest(false)}
+                />
+              </div>
+            )}
           </div>
         )}
 

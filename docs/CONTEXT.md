@@ -6,9 +6,11 @@ MyHours is a mobile-first employee timesheet system that replaces spreadsheet-ba
 
 Current implementation includes:
 - Employee time and PTO entry by pay period
+- Timesheet list ordered by pay period (newest first), then by employee name (last name, first name) for stable, scannable manager view
 - Timesheet workflow: `draft -> submitted -> approved/rejected`, with manager/admin reopen
 - Role-based access controls for employee, manager, and admin use cases
-- Manager reporting exports (payroll, billing, hours by employee, hours by job code)
+- Manager reporting exports (payroll, biweekly payroll rollup, employee detail with draft support, billing report by client, location, site code, employee, service type; hours by employee; hours by job code)
+- Employee self-service export (`/api/reports/my-time-detail`) for downloading own time entries (all statuses)
 - Staggered bi-weekly pay period groups (A/B)
 - Password change + password reset request/reset flows
 
@@ -44,14 +46,17 @@ The backend uses two SQLAlchemy engines from `backend/app/core/database.py`:
 ## Key Directories
 
 - `backend/app/main.py` - FastAPI app configuration and router registration
-- `backend/app/api/` - Route handlers (`auth`, `timesheets`, `reports`, admin CRUD)
+- `backend/app/api/` - Route handlers (`auth`, `timesheets`, `reports`, `site_requests`, admin CRUD)
 - `backend/app/api/deps.py` - Auth and role dependency aliases (`CurrentUser`, `CurrentManager`, `CurrentAdmin`)
 - `backend/app/models/` - SQLAlchemy models + mixins
 - `backend/app/schemas/` - Pydantic schemas
 - `backend/scripts/seed_data.py` - Seed reference data + initial admin
 - `backend/scripts/import_locations.py` - Location/job-code import utility
 - `frontend/src/App.tsx` - Frontend route map and access guards
+- `backend/app/models/site_request.py` - SiteRequest model (employee → manager approval → Location/JobCode creation)
 - `frontend/src/pages/` - User, manager, and admin page components
+- `frontend/src/pages/SiteRequests.tsx` - Site request list with manager approve/reject actions
+- `frontend/src/pages/SiteRequestForm.tsx` - Standalone new site request form
 - `frontend/src/services/api.ts` - Frontend API wrapper and auth token handling
 
 ## Core Domain Workflow
@@ -71,14 +76,32 @@ Time and PTO entry editability:
 - Shared editability helpers in `frontend/src/timesheetStatus.ts`: `isTimesheetEditable()`, `isTimesheetReadOnly()`, `getEntryDateMax()`
 - The `bonus_eligible` time-entry field has been removed from UI and API payloads; database schema no longer stores per-entry bonus eligibility
 
+Site request workflow:
+1. Employee needs a location that doesn't exist yet — submits a **site request** (not a location directly)
+2. Requests are stored in the `site_requests` table with status `pending`
+3. Submission paths:
+   - **Inline from Time Entry:** On the Add Time page, after selecting a client, if the needed location isn't listed the employee clicks "Can't find your site? Request a new one" and fills out an inline form (site name, region, optional AFE/job code + description, notes). The client is pre-filled from the current selection.
+   - **Standalone form:** Navigate to `/site-requests/new` (linked from the Site Requests page)
+4. On submission, managers are notified by email (logged in dev mode)
+5. Managers (or admins) review pending requests at `/site-requests`, where they see all requests with status filters (pending, approved, rejected)
+6. **Approve:** Creates a new `Location` for the client (with site name and region). If AFE/job code info was provided, also creates a `JobCode` on that location. The request is updated with `status=approved`, `reviewed_by`, `reviewed_at`, `created_location_id`, and optionally `created_job_code_id`. Duplicate locations/job codes are detected and reused. The requesting employee is notified by email.
+7. **Reject:** Manager provides a rejection reason. Request is set to `rejected` with `rejection_reason`. The employee is notified by email.
+8. Employees can only view their own requests; managers/admins see all requests.
+
 Access model:
-- **Employee:** own timesheets and entries
-- **Manager:** approvals, reports, broader timesheet visibility
-- **Admin:** manager capabilities plus employee/client/service/location/pay-period administration
+- **Employee:** own timesheets and entries; create and view own site requests; employee list returns summary response (no hourly_rate or integration IDs)
+- **Manager:** approvals, reports, broader timesheet visibility; approve/reject all site requests; employee list returns full response (includes hourly_rate)
+- **Admin:** manager capabilities plus employee/client/service/location/pay-period administration; can reset any employee's password via `POST /api/auth/admin-reset-password` (from the Employees page, key icon per employee opens a modal)
+
+Soft delete pattern:
+- Employees, Locations, and JobCodes use soft delete (set `is_active = false`) rather than hard delete
+- `DELETE` endpoints for these resources deactivate the record; list endpoints filter `active_only=true` by default
 
 Pay period model:
 - Employees are assigned to Group A or Group B
 - Pay periods are generated by group on alternating two-week cycles
+- Pay period endpoints (`/current`, `/recent`) and timesheet creation endpoints filter by the employee's `pay_period_group` to prevent cross-group timesheet creation
+- Biweekly payroll rollup report (`GET /api/reports/payroll-biweekly`) rolls up two consecutive weekly pay periods into one row per employee with per-day hours and aggregate totals; employees are filtered to the selected `period_group`
 
 ## Development Setup (Current)
 
@@ -99,6 +122,4 @@ Pay period model:
 
 ## Known Gaps / Follow-ups
 
-- Frontend dev proxy is currently configured for backend port `8002`; default backend `make dev` runs on `8000`
-- Docker backend healthcheck currently points to `/health`; app health route is `/api/health`
 - Email notifications are currently logged in development mode rather than sent through an SMTP/provider integration

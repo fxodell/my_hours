@@ -41,21 +41,23 @@ async def get_current_pay_period(
     """Get the current open pay period containing today's date."""
     today = date.today()
 
-    # First try to find an open pay period that contains today's date
+    # First try to find an open pay period that contains today's date for the employee's group
     result = await db.execute(
         select(PayPeriod)
         .where(PayPeriod.status == "open")
+        .where(PayPeriod.period_group == current_user.pay_period_group)
         .where(PayPeriod.start_date <= today)
         .where(PayPeriod.end_date >= today)
         .limit(1)
     )
     pay_period = result.scalar_one_or_none()
 
-    # Fallback: find the nearest upcoming open pay period
+    # Fallback: find the nearest upcoming open pay period for the employee's group
     if not pay_period:
         result = await db.execute(
             select(PayPeriod)
             .where(PayPeriod.status == "open")
+            .where(PayPeriod.period_group == current_user.pay_period_group)
             .where(PayPeriod.start_date >= today)
             .order_by(PayPeriod.start_date.asc())
             .limit(1)
@@ -90,6 +92,7 @@ async def get_recent_pay_periods(
 
     result = await db.execute(
         select(PayPeriod)
+        .where(PayPeriod.period_group == current_user.pay_period_group)
         .where(PayPeriod.start_date <= today)
         .where(PayPeriod.end_date >= cutoff)
         .where(
@@ -152,15 +155,22 @@ async def generate_pay_periods(
     current_user: CurrentAdmin,
     start_date: date,
     weeks: int = 8,
+    period_group: str = "A",
 ) -> list[PayPeriod]:
     """
     Generate weekly Sun-Sat pay periods starting from a date.
-    Start date must be a Sunday.
+    Start date must be a Sunday. period_group defaults to 'A'.
     """
     if start_date.weekday() != 6:  # 6 = Sunday
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Start date must be a Sunday",
+        )
+
+    if period_group not in ("A", "B"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="period_group must be 'A' or 'B'",
         )
 
     created_periods = []
@@ -169,16 +179,17 @@ async def generate_pay_periods(
         period_start = start_date + timedelta(days=7 * i)
         period_end = period_start + timedelta(days=6)
 
-        # Check if period already exists
+        # Check if period already exists for this group and start date
         result = await db.execute(
             select(PayPeriod)
             .where(PayPeriod.start_date == period_start)
+            .where(PayPeriod.period_group == period_group)
         )
         existing = result.scalar_one_or_none()
 
         if not existing:
             pay_period = PayPeriod(
-                period_group="A",
+                period_group=period_group,
                 start_date=period_start,
                 end_date=period_end,
                 status="open",

@@ -60,7 +60,7 @@ All routers are mounted under `/api` prefix in `main.py`. Auth uses JWT tokens (
 
 ### Frontend: API Proxy
 
-Vite dev server proxies `/api/*` requests to `http://localhost:8002` (see `frontend/vite.config.ts`). **Note:** `make dev` runs the backend on port 8000, so for local dev either change the proxy target or run uvicorn on 8002. The `fetchApi` helper in `frontend/src/services/api.ts` handles JWT token from localStorage, auto-redirects to `/login` on 401.
+Vite dev server proxies `/api/*` requests to `http://localhost:8000` (see `frontend/vite.config.ts`), matching the backend port from `make dev`. The `fetchApi` helper in `frontend/src/services/api.ts` handles JWT token from localStorage, auto-redirects to `/login` on 401.
 
 ### Frontend: State Management
 
@@ -117,7 +117,7 @@ Client -> Location -> JobCode (hierarchical). TimeEntry references client, locat
 Backend enforces editability: time entry and PTO entry create/update/delete endpoints reject mutations when timesheet status is not `draft` or `rejected`. Both time entry and PTO entry dates are validated against pay period bounds.
 
 ### Pay Period Staggering
-Group A and Group B employees are on alternating 2-week cycles, spreading payroll processing across weeks.
+Group A and Group B employees are on alternating 2-week cycles, spreading payroll processing across weeks. Pay period endpoints and timesheet creation enforce group matching — employees can only see and create timesheets in their assigned group's periods.
 
 ## Required Reading
 
@@ -145,6 +145,8 @@ Three tiers enforced via dependency injection in `backend/app/api/deps.py`:
 | Capability | Employee | Manager | Admin |
 |---|---|---|---|
 | Own timesheets & entries | Yes | Yes | Yes |
+| View employee list (summary only, no rates) | Yes | - | - |
+| View employee list (full, with hourly_rate) | - | Yes | Yes |
 | View all timesheets | - | Yes | Yes |
 | Approve/reject/reopen/delete timesheets | - | Yes | Yes |
 | Reports & exports | - | Yes | Yes |
@@ -163,6 +165,7 @@ Frontend enforces via `ProtectedRoute`, `ManagerRoute`, `AdminRoute` wrappers in
 ## API Endpoints (Key)
 
 ### Timesheets
+- `GET /api/timesheets` - List timesheets (ordered by pay period start_date desc, then employee last_name, first_name)
 - `GET /api/timesheets/current` - Get/create current timesheet for logged-in user
 - `GET /api/timesheets/{id}` - Get timesheet details
 - `POST /api/timesheets/{id}/submit` - Submit for approval
@@ -172,7 +175,10 @@ Frontend enforces via `ProtectedRoute`, `ManagerRoute`, `AdminRoute` wrappers in
 - `DELETE /api/timesheets/{id}` - Delete timesheet (manager/admin only)
 
 ### Reports (Manager only)
-- `GET /api/reports/payroll?format=csv` - Payroll export
+- `GET /api/reports/payroll?format=csv` - Payroll export (one row per weekly timesheet)
+- `GET /api/reports/payroll-biweekly?period_group=A&anchor_start_date=2026-03-15&format=csv` - Biweekly payroll rollup (one row per employee for two consecutive weeks; per-day hours + aggregate totals; JSON/CSV/Excel)
+- `GET /api/reports/employee-detail?employee_id=<uuid>&start_date=2026-03-01&end_date=2026-03-31&format=csv` - Line-level detail for one or many employees (manager only; use `employee_ids=uuid1,uuid2` for multiple; filters: `timesheet_status`, `pay_period_status`, `include_pto`)
+- `GET /api/reports/my-time-detail?start_date=2026-03-01&end_date=2026-03-31&format=csv` - Self-service export of own entries (any authenticated user; same filters as employee-detail minus employee selection)
 - `GET /api/reports/billing?format=csv` - Billing by client
 - `GET /api/reports/hours-by-employee?format=csv` - Hours summary
 - `GET /api/reports/hours-by-job-code?format=csv` - Hours by job code
@@ -183,7 +189,7 @@ Standard REST pattern for each resource — `GET` (list), `GET /{id}`, `POST`, `
 - `/api/employees` — Employee management
 - `/api/clients` — Client management
 - `/api/service-types` — Service type management
-- `/api/locations` — Location management (nested: `/api/locations/{id}/job-codes`)
+- `/api/locations` — Location management (nested: `/api/locations/{id}/job-codes`; DELETE soft-deactivates)
 - `/api/pay-periods` — Pay period management (extra: `POST /generate`, `POST /{id}/close`)
 
 ## Frontend: Reusable Components
@@ -199,13 +205,12 @@ Standard REST pattern for each resource — `GET` (list), `GET /{id}`, `POST`, `
 ### Production (GCE VM at myhours.nfmconsulting.com)
 - **Host nginx** serves static frontend from `/var/www/html` and proxies `/api/` to backend container on port 8000
 - SSL via Let's Encrypt (certbot)
-- Backend runs in Docker with volume mounts (`app/`, `migrations/`, `scripts/`) for live code reload via `--reload`
+- Backend runs in Docker; code may be volume-mounted (`app/`, `migrations/`, `scripts/`) or baked into the image
+- **To see backend code changes in production:** On the server run `git pull` then `./scripts/production-restart-backend.sh` (or `docker compose restart backend`). No image rebuild needed if app code is mounted; if you deploy via new image, run `docker compose build backend && docker compose up -d backend`. See `docs/DEPLOY_PRODUCTION.md` for the full checklist.
 - Frontend deploy: `cd frontend && npm run build && sudo cp -r dist/* /var/www/html/`
 - Backend `.env` from `.env.example`; migrations: `docker compose exec backend alembic upgrade head`
 - Import locations: `docker compose exec backend python scripts/import_locations.py` (requires `/data` volume with Excel file)
 
 ## Known Issues
 
-- Frontend dev proxy targets port `8002` but `make dev` runs backend on port `8000`
-- Docker Compose healthcheck tests `/health` but the actual endpoint is `/api/health`
 - Email notifications are logged in dev mode rather than sent via SMTP

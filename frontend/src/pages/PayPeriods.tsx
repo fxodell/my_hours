@@ -15,6 +15,7 @@ interface PayPeriodFormData {
 interface GenerateFormData {
   start_date: string
   weeks: number
+  period_group: string
 }
 
 export default function PayPeriods() {
@@ -34,6 +35,7 @@ export default function PayPeriods() {
   const [generateData, setGenerateData] = useState<GenerateFormData>({
     start_date: '',
     weeks: 8,
+    period_group: 'A',
   })
   const [error, setError] = useState('')
 
@@ -83,7 +85,7 @@ export default function PayPeriods() {
     onSuccess: (created) => {
       queryClient.invalidateQueries({ queryKey: ['payPeriods'] })
       setShowGenerate(false)
-      setGenerateData({ start_date: '', weeks: 8 })
+      setGenerateData({ start_date: '', weeks: 8, period_group: 'A' })
       setError('')
       alert(`Generated ${created.length} pay periods.`)
     },
@@ -216,7 +218,7 @@ export default function PayPeriods() {
           )}
 
           <form onSubmit={handleGenerate} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-4">
               <div>
                 <label className="label">Start Date (must be Sunday)</label>
                 <input
@@ -226,6 +228,17 @@ export default function PayPeriods() {
                   className="input"
                   required
                 />
+              </div>
+              <div>
+                <label className="label">Group</label>
+                <select
+                  value={generateData.period_group}
+                  onChange={(e) => setGenerateData({ ...generateData, period_group: e.target.value })}
+                  className="input"
+                >
+                  <option value="A">Group A</option>
+                  <option value="B">Group B</option>
+                </select>
               </div>
               <div>
                 <label className="label">Weeks</label>

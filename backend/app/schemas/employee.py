@@ -41,7 +41,7 @@ class EmployeeUpdate(BaseModel):
 
 
 class EmployeeResponse(TimestampSchema):
-    """Response schema - uses str for email to avoid validation on output."""
+    """Full response schema for managers/admins — includes hourly_rate and integration IDs."""
     id: UUID
     email: str  # Use str instead of EmailStr to allow .local domains
     first_name: str
@@ -54,6 +54,20 @@ class EmployeeResponse(TimestampSchema):
     is_active: bool
     engage_employee_id: Optional[str] = None
     quickbooks_employee_id: Optional[str] = None
+    full_name: str
+
+
+class EmployeeSummaryResponse(TimestampSchema):
+    """Reduced response schema for non-manager employees — omits hourly_rate and integration IDs."""
+    id: UUID
+    email: str
+    first_name: str
+    last_name: str
+    hire_date: date
+    pay_period_group: str
+    is_manager: bool
+    is_admin: bool
+    is_active: bool
     full_name: str
 
 

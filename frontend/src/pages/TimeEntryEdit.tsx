@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
@@ -62,8 +62,9 @@ export default function TimeEntryEdit() {
   })
 
   const { data: payPeriod } = useQuery({
-    queryKey: ['currentPayPeriod'],
-    queryFn: api.getCurrentPayPeriod,
+    queryKey: ['payPeriod', timesheet?.pay_period_id],
+    queryFn: () => api.getPayPeriod(timesheet!.pay_period_id),
+    enabled: !!timesheet?.pay_period_id,
   })
 
   const entry = entries?.find(e => e.id === entryId)
@@ -127,6 +128,12 @@ export default function TimeEntryEdit() {
     }
   }, [startTime, endTime, setValue])
 
+  // Track whether entry data has loaded to avoid resetting on initial populate
+  const entryLoadedRef = useRef(false)
+  useEffect(() => {
+    if (entry) entryLoadedRef.current = true
+  }, [entry])
+
   // Fetch locations when client changes
   const { data: locations } = useQuery({
     queryKey: ['locations', selectedClientId],
@@ -140,6 +147,25 @@ export default function TimeEntryEdit() {
     queryFn: () => api.getJobCodes(selectedLocationId),
     enabled: !!selectedLocationId,
   })
+
+  // Reset location and job code when client changes (skip initial entry load)
+  const prevClientRef = useRef(selectedClientId)
+  useEffect(() => {
+    if (entryLoadedRef.current && prevClientRef.current !== selectedClientId) {
+      setValue('location_id', '')
+      setValue('job_code_id', '')
+    }
+    prevClientRef.current = selectedClientId
+  }, [selectedClientId, setValue])
+
+  // Reset job code when location changes (skip initial entry load)
+  const prevLocationRef = useRef(selectedLocationId)
+  useEffect(() => {
+    if (entryLoadedRef.current && prevLocationRef.current !== selectedLocationId) {
+      setValue('job_code_id', '')
+    }
+    prevLocationRef.current = selectedLocationId
+  }, [selectedLocationId, setValue])
 
   const updateEntryMutation = useMutation({
     mutationFn: (data: Partial<TimeEntryCreate>) =>

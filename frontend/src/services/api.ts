@@ -1,4 +1,4 @@
-import type { User, Client, ServiceType, PayPeriod, Timesheet, TimeEntry, PTOEntry, TimeEntryCreate, Location, JobCode } from '../types'
+import type { User, Client, ServiceType, PayPeriod, Timesheet, TimeEntry, PTOEntry, TimeEntryCreate, Location, JobCode, SiteRequest, SiteRequestCreate } from '../types'
 
 const API_BASE = '/api'
 
@@ -150,9 +150,10 @@ export async function createPayPeriod(data: { period_group: string; start_date: 
   })
 }
 
-export async function generatePayPeriods(data: { start_date: string; weeks?: number }): Promise<PayPeriod[]> {
+export async function generatePayPeriods(data: { start_date: string; weeks?: number; period_group?: string }): Promise<PayPeriod[]> {
   const params = new URLSearchParams({ start_date: data.start_date })
   if (data.weeks) params.append('weeks', String(data.weeks))
+  if (data.period_group) params.append('period_group', data.period_group)
   return fetchApi<PayPeriod[]>(`/pay-periods/generate?${params.toString()}`, {
     method: 'POST',
   })
@@ -222,8 +223,11 @@ export async function reopenTimesheet(id: string): Promise<Timesheet> {
 
 export async function rejectTimesheet(id: string, reason: string): Promise<Timesheet> {
   return fetchApi<Timesheet>(
-    `/timesheets/${id}/reject?rejection_reason=${encodeURIComponent(reason)}`,
-    { method: 'POST' }
+    `/timesheets/${id}/reject`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ rejection_reason: reason }),
+    }
   )
 }
 
@@ -356,22 +360,39 @@ export async function createJobCode(locationId: string, data: { code: string; de
   })
 }
 
+export async function deleteLocation(locationId: string): Promise<void> {
+  return fetchApi<void>(`/locations/${locationId}`, { method: 'DELETE' })
+}
+
+export async function deleteJobCode(locationId: string, jobCodeId: string): Promise<void> {
+  return fetchApi<void>(`/locations/${locationId}/job-codes/${jobCodeId}`, { method: 'DELETE' })
+}
+
 // Reports
 export async function getPayrollReport(payPeriodId: string): Promise<Blob> {
   const token = localStorage.getItem('token')
   const response = await fetch(`/api/reports/payroll?pay_period_id=${payPeriodId}&format=csv`, {
     headers: { Authorization: `Bearer ${token}` },
   })
-  if (!response.ok) throw new Error('Failed to download report')
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: 'Failed to download report' }))
+    throw new Error(err.detail || 'Failed to download report')
+  }
   return response.blob()
 }
 
-export async function getBillingReport(payPeriodId: string): Promise<Blob> {
+export async function getBillingReport(startDate?: string, endDate?: string): Promise<Blob> {
   const token = localStorage.getItem('token')
-  const response = await fetch(`/api/reports/billing?pay_period_id=${payPeriodId}&format=csv`, {
+  const qs = new URLSearchParams({ format: 'csv' })
+  if (startDate) qs.set('start_date', startDate)
+  if (endDate) qs.set('end_date', endDate)
+  const response = await fetch(`/api/reports/billing?${qs}`, {
     headers: { Authorization: `Bearer ${token}` },
   })
-  if (!response.ok) throw new Error('Failed to download report')
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: 'Failed to download report' }))
+    throw new Error(err.detail || 'Failed to download report')
+  }
   return response.blob()
 }
 
@@ -380,7 +401,86 @@ export async function getEngageExport(payPeriodId: string): Promise<Blob> {
   const response = await fetch(`/api/reports/engage-export?pay_period_id=${payPeriodId}`, {
     headers: { Authorization: `Bearer ${token}` },
   })
-  if (!response.ok) throw new Error('Failed to download Engage export')
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: 'Failed to download Engage export' }))
+    throw new Error(err.detail || 'Failed to download Engage export')
+  }
+  return response.blob()
+}
+
+export async function getEmployeeDetailReport(params: {
+  employeeIds: string[]
+  startDate: string
+  endDate: string
+  timesheetStatus?: string
+  includePto?: boolean
+  format?: string
+}): Promise<Blob> {
+  const token = localStorage.getItem('token')
+  const fmt = params.format || 'csv'
+  const qs = new URLSearchParams({
+    employee_ids: params.employeeIds.join(','),
+    start_date: params.startDate,
+    end_date: params.endDate,
+    format: fmt,
+    include_pto: String(params.includePto ?? true),
+  })
+  if (params.timesheetStatus) qs.set('timesheet_status', params.timesheetStatus)
+  const response = await fetch(`/api/reports/employee-detail?${qs}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: 'Download failed' }))
+    throw new Error(err.detail || 'Failed to download report')
+  }
+  return response.blob()
+}
+
+export async function getMyTimeDetailReport(params: {
+  startDate: string
+  endDate: string
+  timesheetStatus?: string
+  includePto?: boolean
+  format?: string
+}): Promise<Blob> {
+  const token = localStorage.getItem('token')
+  const fmt = params.format || 'csv'
+  const qs = new URLSearchParams({
+    start_date: params.startDate,
+    end_date: params.endDate,
+    format: fmt,
+    include_pto: String(params.includePto ?? true),
+  })
+  if (params.timesheetStatus) qs.set('timesheet_status', params.timesheetStatus)
+  const response = await fetch(`/api/reports/my-time-detail?${qs}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: 'Download failed' }))
+    throw new Error(err.detail || 'Failed to download report')
+  }
+  return response.blob()
+}
+
+export async function getBiweeklyPayrollReport(params: {
+  periodGroup: string
+  anchorStartDate: string
+  format?: string
+}): Promise<Blob> {
+  const token = localStorage.getItem('token')
+  const fmt = params.format || 'csv'
+  const qs = new URLSearchParams({
+    period_group: params.periodGroup,
+    anchor_start_date: params.anchorStartDate,
+    format: fmt,
+  })
+  const response = await fetch(`/api/reports/payroll-biweekly?${qs}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: 'Download failed' }))
+    throw new Error(err.detail || 'Failed to download report')
+  }
   return response.blob()
 }
 
@@ -403,19 +503,60 @@ export async function deletePTOEntry(timesheetId: string, entryId: string): Prom
   })
 }
 
+// Site Requests
+export async function getSiteRequests(status?: string): Promise<SiteRequest[]> {
+  const params = status ? `?status_filter=${status}` : ''
+  return fetchApi<SiteRequest[]>(`/site-requests${params}`)
+}
+
+export async function createSiteRequest(data: SiteRequestCreate): Promise<SiteRequest> {
+  return fetchApi<SiteRequest>('/site-requests', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function approveSiteRequest(id: string): Promise<SiteRequest> {
+  return fetchApi<SiteRequest>(`/site-requests/${id}/approve`, {
+    method: 'POST',
+  })
+}
+
+export async function rejectSiteRequest(id: string, reason: string): Promise<SiteRequest> {
+  return fetchApi<SiteRequest>(`/site-requests/${id}/reject`, {
+    method: 'POST',
+    body: JSON.stringify({ rejection_reason: reason }),
+  })
+}
+
+// Admin reset password
+export async function adminResetPassword(employeeId: string, newPassword: string): Promise<{ message: string }> {
+  return fetchApi<{ message: string }>(
+    `/auth/admin-reset-password`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ employee_id: employeeId, new_password: newPassword }),
+    }
+  )
+}
+
 // Change password
 export async function changePassword(currentPassword: string, newPassword: string): Promise<{ message: string }> {
   return fetchApi<{ message: string }>(
-    `/auth/change-password?current_password=${encodeURIComponent(currentPassword)}&new_password=${encodeURIComponent(newPassword)}`,
-    { method: 'POST' }
+    `/auth/change-password`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+    }
   )
 }
 
 // Request password reset
 export async function requestPasswordReset(email: string): Promise<{ message: string }> {
-  const response = await fetch(`${API_BASE}/auth/request-reset?email=${encodeURIComponent(email)}`, {
+  const response = await fetch(`${API_BASE}/auth/request-reset`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
   })
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Request failed' }))
@@ -427,8 +568,12 @@ export async function requestPasswordReset(email: string): Promise<{ message: st
 // Reset password with token
 export async function resetPassword(token: string, newPassword: string): Promise<{ message: string }> {
   const response = await fetch(
-    `${API_BASE}/auth/reset-password?token=${encodeURIComponent(token)}&new_password=${encodeURIComponent(newPassword)}`,
-    { method: 'POST', headers: { 'Content-Type': 'application/json' } }
+    `${API_BASE}/auth/reset-password`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, new_password: newPassword }),
+    }
   )
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Reset failed' }))

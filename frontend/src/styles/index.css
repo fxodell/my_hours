@@ -46,7 +46,7 @@
   }
 
   .page-container {
-    @apply min-h-screen pb-20;
+    @apply min-h-screen pb-32;
   }
 }
 

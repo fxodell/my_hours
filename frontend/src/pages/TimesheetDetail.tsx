@@ -47,7 +47,7 @@ export default function TimesheetDetail() {
 
   const { data: payPeriod } = useQuery({
     queryKey: ['payPeriod', timesheet?.pay_period_id],
-    queryFn: () => api.getCurrentPayPeriod(),
+    queryFn: () => api.getPayPeriod(timesheet!.pay_period_id),
     enabled: !!timesheet?.pay_period_id,
   })
 
