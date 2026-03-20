@@ -94,7 +94,7 @@ export default function SearchableSelect({
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault()
-        setHighlightIndex((i) => Math.min(i + 1, filtered.length - 1))
+        setHighlightIndex((i) => filtered.length > 0 ? Math.min(i + 1, filtered.length - 1) : 0)
         break
       case 'ArrowUp':
         e.preventDefault()

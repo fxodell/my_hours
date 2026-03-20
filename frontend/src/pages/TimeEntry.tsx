@@ -256,7 +256,8 @@ export default function TimeEntry() {
     mutationFn: (data: TimeEntryCreate) =>
       api.createTimeEntry(timesheet!.id, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['timeEntries'] })
+      queryClient.invalidateQueries({ queryKey: ['timeEntries', timesheet!.id] })
+      queryClient.invalidateQueries({ queryKey: ['timesheet', timesheet!.id] })
       queryClient.invalidateQueries({ queryKey: ['currentTimesheet'] })
       navigate('/')
     },
@@ -341,7 +342,8 @@ export default function TimeEntry() {
                 .slice()
                 .sort((a, b) => b.start_date.localeCompare(a.start_date))
                 .map((pp) => {
-                  const isCurrentPeriod = true
+                  const today = format(new Date(), 'yyyy-MM-dd')
+                  const isCurrentPeriod = pp.start_date <= today && pp.end_date >= today
                   const isClosed = pp.status === 'closed'
                   const graceDaysLeft = isClosed ? 7 - differenceInCalendarDays(new Date(), parseISO(pp.end_date)) : 0
                   return (

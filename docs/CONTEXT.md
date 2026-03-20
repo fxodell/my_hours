@@ -30,7 +30,9 @@ Current implementation includes:
 - **State/data:** TanStack Query + React Context + React Hook Form
 - **Styling:** Tailwind CSS
 - **PWA:** `vite-plugin-pwa` with runtime caching for API/font assets
-- **Route guards:** `ProtectedRoute`, `ManagerRoute`, `AdminRoute`
+- **Route guards:** `ProtectedRoute`, `ManagerRoute`, `AdminRoute` — all three check `isLoading` before redirecting to prevent premature navigation while auth state resolves
+- **Reusable components:** `SearchableSelect` (dropdown with search/filter, keyboard navigation), `Layout` (header + bottom nav for mobile)
+- **API layer:** `fetchApi` wrapper in `services/api.ts` handles JWT tokens, auto-redirects to `/login` on 401, returns typed responses; `fetchApiBlob` for report file downloads
 
 ### Database Engine Pattern
 
@@ -120,6 +122,18 @@ Pay period model:
 - Test coverage includes: auth, health, time entry CRUD (past-day, out-of-period, post-submit blocking), PTO entry CRUD (date validation, post-submit blocking)
 - Known issue: session-scoped engine with committed fixtures causes unique constraint failures when running multiple test files together; run individual test files or functions in isolation
 
+## Frontend Patterns and Conventions
+
+- **Entry forms** (`TimeEntry.tsx`, `TimeEntryEdit.tsx`, `PTOEntry.tsx`, `PTOEntryEdit.tsx`) use cascading selects (Client → Location → Job Code) with `useEffect` + `setValue` resets on parent change
+- **Pay period selector** in entry forms shows "Current" badge based on date comparison (`start_date <= today <= end_date`) and grace-period countdown for closed periods
+- **Report downloads** use concurrent download tracking (`activeDownloads` Set) with date range validation (`startDate <= endDate`) before fetching
+- **Profile page** auto-dismisses success messages after 5 seconds
+- **Validation approach:** Backend is the source of truth for all business rules; frontend provides UX-level validation (required fields, date ranges) but does not duplicate backend logic
+
 ## Known Gaps / Follow-ups
 
 - Email notifications are currently logged in development mode rather than sent through an SMTP/provider integration
+- Clients and ServiceTypes use hard delete (data loss risk); should migrate to soft delete pattern matching Employees/Locations/JobCodes
+- No pagination on client and location list endpoints (all records returned)
+- Password reset tokens are gated behind `settings.debug` for logging but no production email delivery yet
+- Test infrastructure has session-scoped engine issue (see Testing State section)

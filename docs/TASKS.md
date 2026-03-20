@@ -5,6 +5,9 @@
 - [ ] Add API integration tests for timesheet submit/approve/reject/reopen lifecycle
 - [ ] Add API integration tests for report export endpoints (CSV and Excel)
 - [ ] Add tests for admin CRUD endpoints (clients, service types, employees, locations, pay periods)
+- [ ] Migrate Clients and ServiceTypes from hard delete to soft delete (add `is_active` flag, matching Employee/Location/JobCode pattern)
+- [ ] Add pagination (limit/offset) to client and location list endpoints
+- [ ] Fix test infrastructure: replace session-scoped engine with function-scoped transactions to avoid unique constraint collisions
 
 ## Backlog
 - [ ] Replace development email logger with configurable SMTP/provider implementation
@@ -14,8 +17,22 @@
 - [ ] Add seed/import idempotency tests and data validation checks
 - [ ] Improve dashboard analytics and manager review queue UX
 - [ ] Add CI pipeline for lint/test/build checks
+- [ ] Add aria-labels to icon-only buttons across frontend (edit, delete, status actions)
+- [ ] Add error boundaries around modal dialogs (Approvals, TimesheetDetail)
+- [ ] Verify PWA icon files exist in public directory (pwa-192x192.png, pwa-512x512.png)
 
 ## Completed
+- [x] Fix `TimeEntry.tsx` pay period selector: compute `isCurrentPeriod` from dates instead of hardcoded `true` (matching `PTOEntry.tsx` behavior)
+- [x] Fix `Profile.tsx` success message: auto-dismiss after 5 seconds instead of persisting forever
+- [x] Fix `SearchableSelect.tsx` keyboard navigation: guard ArrowDown against empty filtered list
+- [x] Fix `ManagerRoute`/`AdminRoute` loading state: add `isLoading` check to prevent premature redirects before auth resolves
+- [x] Add validators to `TimeEntryUpdate` and `PTOEntryUpdate` schemas (hours range, work_mode, pto_type)
+- [x] Fix password reset token info leak: merge invalid/expired error messages into single response
+- [x] Gate reset token debug logging behind `settings.debug`
+- [x] Add date range validation (`startDate <= endDate`) to Reports download functions
+- [x] Fix employee detail report sort key: use structural work-context fields instead of description
+- [x] Add `selectinload(Timesheet.pay_period)` to timesheets list query
+- [x] Remove unused `selectinload` import from `locations.py`
 - [x] Add employee detail report (`GET /api/reports/employee-detail`): line-level rows per entry, multi-employee, status-aware (including draft), date range, JSON/CSV/Excel with Summary sheet
 - [x] Add self-service export (`GET /api/reports/my-time-detail`): employees download own entries, all statuses, scoped to current user only
 - [x] Add biweekly payroll rollup report (`GET /api/reports/payroll-biweekly`): one row per employee for two consecutive weekly pay periods, with per-day hours, aggregate totals, and JSON/CSV/Excel export

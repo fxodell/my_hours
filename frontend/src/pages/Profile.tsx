@@ -22,6 +22,7 @@ export default function Profile() {
       setNewPassword('')
       setConfirmPassword('')
       setError('')
+      setTimeout(() => setSuccess(''), 5000)
     },
     onError: (err) => {
       setError(err instanceof Error ? err.message : 'Failed to change password')
