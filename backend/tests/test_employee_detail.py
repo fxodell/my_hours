@@ -6,6 +6,7 @@ from datetime import date
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.company import Company
 from app.models.pay_period import PayPeriod
 from app.models.timesheet import Timesheet
 from app.models.time_entry import TimeEntry
@@ -23,7 +24,12 @@ def _setup_data():
 @pytest_asyncio.fixture(autouse=True)
 async def setup_report_data(db_session: AsyncSession, _setup_data: dict):
     """Seed pay period, employees, timesheets, and entries for each test."""
+    company = Company(name="Detail Co", slug="detail-co", is_active=True)
+    db_session.add(company)
+    await db_session.flush()
+
     pp = PayPeriod(
+        company_id=company.id,
         period_group="A",
         start_date=date(2026, 7, 5),
         end_date=date(2026, 7, 18),
@@ -33,6 +39,7 @@ async def setup_report_data(db_session: AsyncSession, _setup_data: dict):
     await db_session.flush()
 
     mgr = Employee(
+        company_id=company.id,
         email="detail-mgr@test.com",
         password_hash=get_password_hash("pass"),
         first_name="Dana", last_name="Manager",
@@ -40,6 +47,7 @@ async def setup_report_data(db_session: AsyncSession, _setup_data: dict):
         is_manager=True, is_active=True,
     )
     emp = Employee(
+        company_id=company.id,
         email="detail-emp@test.com",
         password_hash=get_password_hash("pass"),
         first_name="Eve", last_name="Employee",
@@ -47,6 +55,7 @@ async def setup_report_data(db_session: AsyncSession, _setup_data: dict):
         is_manager=False, is_active=True,
     )
     emp2 = Employee(
+        company_id=company.id,
         email="detail-emp2@test.com",
         password_hash=get_password_hash("pass"),
         first_name="Frank", last_name="Worker",
@@ -56,7 +65,7 @@ async def setup_report_data(db_session: AsyncSession, _setup_data: dict):
     db_session.add_all([mgr, emp, emp2])
     await db_session.flush()
 
-    ts_draft = Timesheet(employee_id=emp.id, pay_period_id=pp.id, status="draft")
+    ts_draft = Timesheet(company_id=company.id, employee_id=emp.id, pay_period_id=pp.id, status="draft")
     db_session.add(ts_draft)
     await db_session.flush()
 
@@ -73,7 +82,7 @@ async def setup_report_data(db_session: AsyncSession, _setup_data: dict):
         pto_type="personal", hours=8,
     ))
 
-    ts_approved = Timesheet(employee_id=emp2.id, pay_period_id=pp.id, status="approved")
+    ts_approved = Timesheet(company_id=company.id, employee_id=emp2.id, pay_period_id=pp.id, status="approved")
     db_session.add(ts_approved)
     await db_session.flush()
 

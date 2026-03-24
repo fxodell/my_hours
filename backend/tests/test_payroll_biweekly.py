@@ -6,6 +6,7 @@ from datetime import date
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.company import Company
 from app.models.pay_period import PayPeriod
 from app.models.timesheet import Timesheet
 from app.models.time_entry import TimeEntry
@@ -23,20 +24,27 @@ def _setup_data():
 @pytest_asyncio.fixture(autouse=True)
 async def setup_biweekly_data(db_session: AsyncSession, _setup_data: dict):
     """Seed pay periods, employees, timesheets, and entries for each test."""
+    company = Company(name="Biweekly Co", slug="biweekly-co", is_active=True)
+    db_session.add(company)
+    await db_session.flush()
+
     # Two consecutive Group A weekly periods: Sun-Sat
     pp1 = PayPeriod(
+        company_id=company.id,
         period_group="A",
         start_date=date(2026, 6, 7),
         end_date=date(2026, 6, 13),
         status="open",
     )
     pp2 = PayPeriod(
+        company_id=company.id,
         period_group="A",
         start_date=date(2026, 6, 14),
         end_date=date(2026, 6, 20),
         status="open",
     )
     pp_b = PayPeriod(
+        company_id=company.id,
         period_group="B",
         start_date=date(2026, 6, 7),
         end_date=date(2026, 6, 13),
@@ -46,6 +54,7 @@ async def setup_biweekly_data(db_session: AsyncSession, _setup_data: dict):
     await db_session.flush()
 
     emp_a = Employee(
+        company_id=company.id,
         email="biweekly-a@test.com",
         password_hash=get_password_hash("pass"),
         first_name="Alice", last_name="Alpha",
@@ -53,6 +62,7 @@ async def setup_biweekly_data(db_session: AsyncSession, _setup_data: dict):
         is_manager=True, is_active=True,
     )
     emp_b = Employee(
+        company_id=company.id,
         email="biweekly-b@test.com",
         password_hash=get_password_hash("pass"),
         first_name="Bob", last_name="Beta",
@@ -60,6 +70,7 @@ async def setup_biweekly_data(db_session: AsyncSession, _setup_data: dict):
         is_manager=True, is_active=True,
     )
     emp_reg = Employee(
+        company_id=company.id,
         email="regular-biweekly@test.com",
         password_hash=get_password_hash("pass"),
         first_name="Regular", last_name="User",
@@ -69,9 +80,9 @@ async def setup_biweekly_data(db_session: AsyncSession, _setup_data: dict):
     db_session.add_all([emp_a, emp_b, emp_reg])
     await db_session.flush()
 
-    ts1 = Timesheet(employee_id=emp_a.id, pay_period_id=pp1.id, status="approved")
-    ts2 = Timesheet(employee_id=emp_a.id, pay_period_id=pp2.id, status="approved")
-    ts_b = Timesheet(employee_id=emp_b.id, pay_period_id=pp_b.id, status="approved")
+    ts1 = Timesheet(company_id=company.id, employee_id=emp_a.id, pay_period_id=pp1.id, status="approved")
+    ts2 = Timesheet(company_id=company.id, employee_id=emp_a.id, pay_period_id=pp2.id, status="approved")
+    ts_b = Timesheet(company_id=company.id, employee_id=emp_b.id, pay_period_id=pp_b.id, status="approved")
     db_session.add_all([ts1, ts2, ts_b])
     await db_session.flush()
 

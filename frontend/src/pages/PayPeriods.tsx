@@ -3,6 +3,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, parseISO } from 'date-fns'
 import * as api from '../services/api'
 import { useAuth } from '../contexts/AuthContext'
+import { useCompany } from '../contexts/CompanyContext'
+import CompanySelector from '../components/CompanySelector'
 import type { PayPeriod } from '../types'
 
 interface PayPeriodFormData {
@@ -20,6 +22,7 @@ interface GenerateFormData {
 
 export default function PayPeriods() {
   const { user } = useAuth()
+  const { companyParam } = useCompany()
   const queryClient = useQueryClient()
   const [showForm, setShowForm] = useState(false)
   const [showGenerate, setShowGenerate] = useState(false)
@@ -40,11 +43,12 @@ export default function PayPeriods() {
   const [error, setError] = useState('')
 
   const { data: payPeriods, isLoading } = useQuery({
-    queryKey: ['payPeriods', 'admin', filterStatus],
+    queryKey: ['payPeriods', 'admin', filterStatus, companyParam],
     queryFn: () =>
       api.getAllPayPeriods({
         status_filter: filterStatus || undefined,
         limit: 100,
+        company_id: companyParam,
       }),
   })
 
@@ -170,6 +174,7 @@ export default function PayPeriods() {
 
   return (
     <div className="space-y-6">
+      <CompanySelector />
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-bold text-gray-900">Pay Periods</h2>
         {!showForm && !showGenerate && (
@@ -208,7 +213,7 @@ export default function PayPeriods() {
         <div className="card p-4">
           <h3 className="font-semibold text-gray-900 mb-4">Generate Pay Periods</h3>
           <p className="text-sm text-gray-500 mb-4">
-            Creates weekly Sun-Sat pay periods. Start date must be a Sunday.
+            Creates weekly Mon-Sun pay periods. Start date must be a Monday.
           </p>
 
           {error && (
@@ -220,7 +225,7 @@ export default function PayPeriods() {
           <form onSubmit={handleGenerate} className="space-y-4">
             <div className="grid grid-cols-3 gap-4">
               <div>
-                <label className="label">Start Date (must be Sunday)</label>
+                <label className="label">Start Date (must be Monday)</label>
                 <input
                   type="date"
                   value={generateData.start_date}

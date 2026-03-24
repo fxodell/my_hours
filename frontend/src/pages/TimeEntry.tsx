@@ -186,15 +186,20 @@ export default function TimeEntry() {
     queryFn: () => api.getPayPeriod(timesheet!.pay_period_id),
     enabled: !!timesheet?.pay_period_id,
   })
+  const { data: billingWeeks } = useQuery({
+    queryKey: ['billingWeeks', timesheet?.id],
+    queryFn: () => api.getBillingWeeks(timesheet!.id),
+    enabled: !!timesheet?.id,
+  })
 
   const { data: clients } = useQuery({
     queryKey: ['clients'],
-    queryFn: api.getClients,
+    queryFn: () => api.getClients(),
   })
 
   const { data: serviceTypes } = useQuery({
     queryKey: ['serviceTypes'],
-    queryFn: api.getServiceTypes,
+    queryFn: () => api.getServiceTypes(),
   })
 
   const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<FormData>({
@@ -214,6 +219,7 @@ export default function TimeEntry() {
   })
 
   const workMode = watch('work_mode')
+  const workDate = watch('work_date')
   const startTime = watch('start_time')
   const endTime = watch('end_time')
   const selectedClientId = watch('client_id')
@@ -307,6 +313,9 @@ export default function TimeEntry() {
 
   const canEdit = isTimesheetEditable(timesheet?.status)
   const maxWorkDate = getEntryDateMax(payPeriod?.end_date)
+  const selectedWeek = billingWeeks?.find((week) => week.week_start_date <= workDate && week.week_end_date >= workDate)
+  const isSelectedWeekLocked = !!selectedWeek && (selectedWeek.status === 'approved' || selectedWeek.status === 'billed')
+  const canEditForm = canEdit && !isSelectedWeekLocked
 
   return (
     <div className="space-y-6">
@@ -323,6 +332,11 @@ export default function TimeEntry() {
       {isTimesheetReadOnly(timesheet?.status) && (
         <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded-lg text-sm">
           This timesheet is read-only and cannot be edited.
+        </div>
+      )}
+      {isSelectedWeekLocked && (
+        <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded-lg text-sm">
+          The selected date is in a billing week marked {selectedWeek?.status}. Entries for this week are locked.
         </div>
       )}
 
@@ -390,7 +404,7 @@ export default function TimeEntry() {
             type="date"
             {...register('work_date', { required: 'Date is required' })}
             className="input"
-            disabled={!canEdit}
+            disabled={!canEditForm}
             min={payPeriod?.start_date}
             max={maxWorkDate}
           />
@@ -412,14 +426,14 @@ export default function TimeEntry() {
               type="time"
               {...register('start_time')}
               className="input"
-              disabled={!canEdit}
+              disabled={!canEditForm}
               placeholder="Start"
             />
             <input
               type="time"
               {...register('end_time')}
               className="input"
-              disabled={!canEdit}
+              disabled={!canEditForm}
               placeholder="End"
             />
           </div>
@@ -446,14 +460,14 @@ export default function TimeEntry() {
                   watch('hours') === h
                     ? 'bg-primary-100 border-primary-500 text-primary-700'
                     : 'border-gray-300 hover:border-gray-400'
-                } ${!canEdit ? 'opacity-50 cursor-not-allowed' : ''}`}
+                } ${!canEditForm ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 <input
                   type="radio"
                   value={h}
                   {...register('hours', { valueAsNumber: true })}
                   className="sr-only"
-                  disabled={!canEdit}
+                  disabled={!canEditForm}
                 />
                 {h}
               </label>
@@ -470,14 +484,14 @@ export default function TimeEntry() {
                 workMode === 'remote'
                   ? 'bg-primary-100 border-primary-500 text-primary-700'
                   : 'border-gray-300 hover:border-gray-400'
-              } ${!canEdit ? 'opacity-50 cursor-not-allowed' : ''}`}
+              } ${!canEditForm ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
               <input
                 type="radio"
                 value="remote"
                 {...register('work_mode')}
                 className="sr-only"
-                disabled={!canEdit}
+                disabled={!canEditForm}
               />
               <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
@@ -489,14 +503,14 @@ export default function TimeEntry() {
                 workMode === 'on_site'
                   ? 'bg-primary-100 border-primary-500 text-primary-700'
                   : 'border-gray-300 hover:border-gray-400'
-              } ${!canEdit ? 'opacity-50 cursor-not-allowed' : ''}`}
+              } ${!canEditForm ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
               <input
                 type="radio"
                 value="on_site"
                 {...register('work_mode')}
                 className="sr-only"
-                disabled={!canEdit}
+                disabled={!canEditForm}
               />
               <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
@@ -512,7 +526,7 @@ export default function TimeEntry() {
           <select
             {...register('client_id')}
             className="input"
-            disabled={!canEdit}
+            disabled={!canEditForm}
           >
             <option value="">Select a client</option>
             {clients?.map((client) => (
@@ -536,7 +550,7 @@ export default function TimeEntry() {
                 value={watch('location_id')}
                 onChange={(val) => setValue('location_id', val)}
                 placeholder="Select a location"
-                disabled={!canEdit}
+                disabled={!canEditForm}
               />
             ) : (
               <p className="text-sm text-gray-500 py-2">No locations for this client yet.</p>
@@ -604,7 +618,7 @@ export default function TimeEntry() {
             <select
               {...register('job_code_id')}
               className="input"
-              disabled={!canEdit}
+              disabled={!canEditForm}
             >
               <option value="">Select a job code</option>
               {jobCodes?.map((jobCode) => (
@@ -622,7 +636,7 @@ export default function TimeEntry() {
           <select
             {...register('service_type_id')}
             className="input"
-            disabled={!canEdit}
+            disabled={!canEditForm}
           >
             <option value="">Select a service type</option>
             {serviceTypes?.map((st) => (
@@ -640,7 +654,7 @@ export default function TimeEntry() {
             {...register('description')}
             className="input min-h-[100px]"
             placeholder="Describe the work performed..."
-            disabled={!canEdit}
+            disabled={!canEditForm}
           />
         </div>
 
@@ -651,7 +665,7 @@ export default function TimeEntry() {
             <select
               {...register('vehicle_reimbursement_tier')}
               className="input"
-              disabled={!canEdit}
+              disabled={!canEditForm}
             >
               {VEHICLE_TIERS.map((tier) => (
                 <option key={tier.value} value={tier.value}>
@@ -665,7 +679,7 @@ export default function TimeEntry() {
         {/* Submit */}
         <button
           type="submit"
-          disabled={!canEdit || createEntryMutation.isPending}
+          disabled={!canEditForm || createEntryMutation.isPending}
           className="btn-primary w-full py-3 text-lg"
         >
           {createEntryMutation.isPending ? 'Saving...' : 'Save Entry'}

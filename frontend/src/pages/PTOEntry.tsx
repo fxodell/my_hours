@@ -69,6 +69,11 @@ export default function PTOEntry() {
     queryFn: () => api.getPayPeriod(timesheet!.pay_period_id),
     enabled: !!timesheet?.pay_period_id,
   })
+  const { data: billingWeeks } = useQuery({
+    queryKey: ['billingWeeks', timesheet?.id],
+    queryFn: () => api.getBillingWeeks(timesheet!.id),
+    enabled: !!timesheet?.id,
+  })
 
   const { register, handleSubmit, watch, formState: { errors } } = useForm<FormData>({
     defaultValues: {
@@ -100,6 +105,10 @@ export default function PTOEntry() {
 
   const canEdit = isTimesheetEditable(timesheet?.status)
   const maxPTODate = getEntryDateMax(payPeriod?.end_date)
+  const selectedPtoDate = watch('pto_date')
+  const selectedWeek = billingWeeks?.find((week) => week.week_start_date <= selectedPtoDate && week.week_end_date >= selectedPtoDate)
+  const isSelectedWeekLocked = !!selectedWeek && (selectedWeek.status === 'approved' || selectedWeek.status === 'billed')
+  const canEditForm = canEdit && !isSelectedWeekLocked
 
   return (
     <div className="space-y-6">
@@ -116,6 +125,11 @@ export default function PTOEntry() {
       {isTimesheetReadOnly(timesheet?.status) && (
         <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded-lg text-sm">
           This timesheet is read-only and cannot be edited.
+        </div>
+      )}
+      {isSelectedWeekLocked && (
+        <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded-lg text-sm">
+          The selected date is in a billing week marked {selectedWeek?.status}. PTO for this week is locked.
         </div>
       )}
 
@@ -183,7 +197,7 @@ export default function PTOEntry() {
             type="date"
             {...register('pto_date', { required: 'Date is required' })}
             className="input"
-            disabled={!canEdit}
+            disabled={!canEditForm}
             min={payPeriod?.start_date}
             max={maxPTODate}
           />
@@ -208,14 +222,14 @@ export default function PTOEntry() {
                   watch('pto_type') === type.value
                     ? 'bg-primary-100 border-primary-500 text-primary-700'
                     : 'border-gray-300 hover:border-gray-400'
-                } ${!canEdit ? 'opacity-50 cursor-not-allowed' : ''}`}
+                } ${!canEditForm ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 <input
                   type="radio"
                   value={type.value}
                   {...register('pto_type')}
                   className="sr-only"
-                  disabled={!canEdit}
+                  disabled={!canEditForm}
                 />
                 {type.label}
               </label>
@@ -234,14 +248,14 @@ export default function PTOEntry() {
                   watch('hours') === h
                     ? 'bg-primary-100 border-primary-500 text-primary-700'
                     : 'border-gray-300 hover:border-gray-400'
-                } ${!canEdit ? 'opacity-50 cursor-not-allowed' : ''}`}
+                } ${!canEditForm ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 <input
                   type="radio"
                   value={h}
                   {...register('hours', { valueAsNumber: true })}
                   className="sr-only"
-                  disabled={!canEdit}
+                  disabled={!canEditForm}
                 />
                 {h}
               </label>
@@ -256,14 +270,14 @@ export default function PTOEntry() {
             {...register('notes')}
             className="input min-h-[80px]"
             placeholder="Add any notes..."
-            disabled={!canEdit}
+            disabled={!canEditForm}
           />
         </div>
 
         {/* Submit */}
         <button
           type="submit"
-          disabled={!canEdit || createPTOMutation.isPending}
+          disabled={!canEditForm || createPTOMutation.isPending}
           className="btn-primary w-full py-3 text-lg"
         >
           {createPTOMutation.isPending ? 'Saving...' : 'Save PTO Entry'}

@@ -3,6 +3,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, parseISO } from 'date-fns'
 import * as api from '../services/api'
 import { useAuth } from '../contexts/AuthContext'
+import { useCompany } from '../contexts/CompanyContext'
+import CompanySelector from '../components/CompanySelector'
 import type { User } from '../types'
 
 interface EmployeeFormData {
@@ -20,6 +22,7 @@ interface EmployeeFormData {
 
 export default function Employees() {
   const { user } = useAuth()
+  const { companyParam } = useCompany()
   const queryClient = useQueryClient()
   const [showForm, setShowForm] = useState(false)
   const [editingEmployee, setEditingEmployee] = useState<User | null>(null)
@@ -42,8 +45,8 @@ export default function Employees() {
   const [resetSuccess, setResetSuccess] = useState('')
 
   const { data: employees, isLoading } = useQuery({
-    queryKey: ['employees'],
-    queryFn: api.getEmployees,
+    queryKey: ['employees', companyParam],
+    queryFn: () => api.getEmployees(companyParam),
   })
 
   const createMutation = useMutation({
@@ -182,6 +185,7 @@ export default function Employees() {
 
   return (
     <div className="space-y-6">
+      <CompanySelector />
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-bold text-gray-900">Employee Management</h2>
         {!showForm && (

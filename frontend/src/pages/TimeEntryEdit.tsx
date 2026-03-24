@@ -71,12 +71,12 @@ export default function TimeEntryEdit() {
 
   const { data: clients } = useQuery({
     queryKey: ['clients'],
-    queryFn: api.getClients,
+    queryFn: () => api.getClients(),
   })
 
   const { data: serviceTypes } = useQuery({
     queryKey: ['serviceTypes'],
-    queryFn: api.getServiceTypes,
+    queryFn: () => api.getServiceTypes(),
   })
 
   const { register, handleSubmit, watch, reset, setValue, formState: { errors } } = useForm<FormData>({

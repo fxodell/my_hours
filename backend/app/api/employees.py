@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from app.models.employee import Employee
 from app.schemas.employee import EmployeeCreate, EmployeeUpdate, EmployeeResponse, EmployeeSummaryResponse
 from app.core.security import get_password_hash
-from app.api.deps import DB, CurrentUser, CurrentAdmin
+from app.api.deps import DB, CurrentUser, CurrentAdmin, resolve_company_id
 
 router = APIRouter(prefix="/employees", tags=["employees"])
 
@@ -18,8 +18,10 @@ async def list_employees(
     db: DB,
     current_user: CurrentUser,
     active_only: bool = True,
+    company_id: UUID | None = None,
 ) -> JSONResponse:
-    query = select(Employee)
+    cid = resolve_company_id(current_user, company_id)
+    query = select(Employee).where(Employee.company_id == cid)
     if active_only:
         query = query.where(Employee.is_active == True)
     query = query.order_by(Employee.last_name, Employee.first_name)
@@ -43,7 +45,9 @@ async def get_employee(
     db: DB,
     current_user: CurrentUser,
 ) -> JSONResponse:
-    result = await db.execute(select(Employee).where(Employee.id == employee_id))
+    result = await db.execute(
+        select(Employee).where(Employee.id == employee_id, Employee.company_id == current_user.company_id)
+    )
     employee = result.scalar_one_or_none()
 
     if not employee:
@@ -68,8 +72,18 @@ async def create_employee(
     db: DB,
     current_user: CurrentAdmin,
 ) -> Employee:
-    data = employee_data.model_dump(exclude={"password"})
+    data = employee_data.model_dump(exclude={"password", "company_id"})
     data["password_hash"] = get_password_hash(employee_data.password)
+    # Super-admins can assign to any company; regular admins always use their own
+    if employee_data.company_id and employee_data.company_id != current_user.company_id:
+        if not current_user.is_super_admin:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Cannot create employee in another company",
+            )
+        data["company_id"] = employee_data.company_id
+    else:
+        data["company_id"] = current_user.company_id
 
     employee = Employee(**data)
 
@@ -94,7 +108,9 @@ async def update_employee(
     db: DB,
     current_user: CurrentAdmin,
 ) -> Employee:
-    result = await db.execute(select(Employee).where(Employee.id == employee_id))
+    result = await db.execute(
+        select(Employee).where(Employee.id == employee_id, Employee.company_id == current_user.company_id)
+    )
     employee = result.scalar_one_or_none()
 
     if not employee:
@@ -131,7 +147,9 @@ async def delete_employee(
     db: DB,
     current_user: CurrentAdmin,
 ) -> None:
-    result = await db.execute(select(Employee).where(Employee.id == employee_id))
+    result = await db.execute(
+        select(Employee).where(Employee.id == employee_id, Employee.company_id == current_user.company_id)
+    )
     employee = result.scalar_one_or_none()
 
     if not employee:

@@ -43,7 +43,11 @@ async def login(
 
     access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
     access_token = create_access_token(
-        data={"sub": str(user.id), "email": user.email},
+        data={
+            "sub": str(user.id),
+            "email": user.email,
+            "company_id": str(user.company_id),
+        },
         expires_delta=access_token_expires,
     )
 
@@ -161,9 +165,15 @@ async def admin_reset_password(
             detail="Invalid employee ID",
         )
 
-    result = await db.execute(
-        select(Employee).where(Employee.id == emp_uuid)
-    )
+    # Scope to same company unless super-admin
+    if current_user.is_super_admin:
+        result = await db.execute(
+            select(Employee).where(Employee.id == emp_uuid)
+        )
+    else:
+        result = await db.execute(
+            select(Employee).where(Employee.id == emp_uuid, Employee.company_id == current_user.company_id)
+        )
     employee = result.scalar_one_or_none()
 
     if not employee:
@@ -171,6 +181,13 @@ async def admin_reset_password(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Employee not found",
         )
+
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(
+        "Admin password reset: admin=%s (company=%s) reset password for employee=%s (company=%s)",
+        current_user.id, current_user.company_id, employee.id, employee.company_id,
+    )
 
     employee.password_hash = get_password_hash(body.new_password)
     employee.reset_token = None

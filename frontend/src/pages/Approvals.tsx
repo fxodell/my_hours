@@ -2,27 +2,30 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, parseISO } from 'date-fns'
 import * as api from '../services/api'
+import { useCompany } from '../contexts/CompanyContext'
+import CompanySelector from '../components/CompanySelector'
 import type { TimeEntry } from '../types'
 
 export default function Approvals() {
+  const { companyParam } = useCompany()
   const queryClient = useQueryClient()
   const [selectedTimesheet, setSelectedTimesheet] = useState<string | null>(null)
   const [rejectionReason, setRejectionReason] = useState('')
   const [showRejectModal, setShowRejectModal] = useState<string | null>(null)
 
   const { data: pendingTimesheets, isLoading } = useQuery({
-    queryKey: ['timesheets', 'submitted'],
-    queryFn: () => api.getTimesheets({ status: 'submitted' }),
+    queryKey: ['timesheets', 'submitted', companyParam],
+    queryFn: () => api.getTimesheets({ status: 'submitted', company_id: companyParam }),
   })
 
   const { data: employees } = useQuery({
-    queryKey: ['employees'],
-    queryFn: api.getEmployees,
+    queryKey: ['employees', companyParam],
+    queryFn: () => api.getEmployees(companyParam),
   })
 
   const { data: payPeriods } = useQuery({
-    queryKey: ['payPeriods'],
-    queryFn: () => api.getPayPeriods(20),
+    queryKey: ['payPeriods', companyParam],
+    queryFn: () => api.getPayPeriods(20, companyParam),
   })
 
   const { data: selectedEntries } = useQuery({
@@ -33,12 +36,12 @@ export default function Approvals() {
 
   const { data: clients } = useQuery({
     queryKey: ['clients'],
-    queryFn: api.getClients,
+    queryFn: () => api.getClients(),
   })
 
   const { data: serviceTypes } = useQuery({
     queryKey: ['serviceTypes'],
-    queryFn: api.getServiceTypes,
+    queryFn: () => api.getServiceTypes(),
   })
 
   const employeeMap = new Map(employees?.map((e) => [e.id, e]))
@@ -78,6 +81,7 @@ export default function Approvals() {
 
   return (
     <div className="space-y-6">
+      <CompanySelector />
       <h2 className="text-xl font-bold text-gray-900">Pending Approvals</h2>
 
       {pendingTimesheets?.length === 0 ? (

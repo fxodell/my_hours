@@ -6,6 +6,7 @@ from datetime import date
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.company import Company
 from app.models.pay_period import PayPeriod
 from app.models.timesheet import Timesheet
 from app.models.time_entry import TimeEntry
@@ -20,7 +21,12 @@ def _ctx():
 
 @pytest_asyncio.fixture(autouse=True)
 async def seed(db_session: AsyncSession, _ctx: dict):
+    company = Company(name="Lifecycle Co", slug="lifecycle-co", is_active=True)
+    db_session.add(company)
+    await db_session.flush()
+
     pp = PayPeriod(
+        company_id=company.id,
         period_group="A", start_date=date(2026, 4, 5),
         end_date=date(2026, 4, 11), status="open",
     )
@@ -28,17 +34,20 @@ async def seed(db_session: AsyncSession, _ctx: dict):
     await db_session.flush()
 
     emp = Employee(
+        company_id=company.id,
         email="lifecycle-emp@test.com", password_hash=get_password_hash("pass"),
         first_name="Lifecycle", last_name="Employee",
         hire_date=date(2024, 1, 1), pay_period_group="A", is_active=True,
     )
     mgr = Employee(
+        company_id=company.id,
         email="lifecycle-mgr@test.com", password_hash=get_password_hash("pass"),
         first_name="Lifecycle", last_name="Manager",
         hire_date=date(2024, 1, 1), pay_period_group="A",
         is_manager=True, is_active=True,
     )
     other = Employee(
+        company_id=company.id,
         email="lifecycle-other@test.com", password_hash=get_password_hash("pass"),
         first_name="Other", last_name="Employee",
         hire_date=date(2024, 1, 1), pay_period_group="A", is_active=True,
@@ -46,7 +55,7 @@ async def seed(db_session: AsyncSession, _ctx: dict):
     db_session.add_all([emp, mgr, other])
     await db_session.flush()
 
-    ts = Timesheet(employee_id=emp.id, pay_period_id=pp.id, status="draft")
+    ts = Timesheet(company_id=company.id, employee_id=emp.id, pay_period_id=pp.id, status="draft")
     db_session.add(ts)
     await db_session.flush()
 

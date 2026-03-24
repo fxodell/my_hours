@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { format, parseISO } from 'date-fns'
 import * as api from '../services/api'
@@ -89,11 +90,28 @@ export default function Profile() {
           <div className="flex justify-between py-3 border-b border-gray-100">
             <span className="text-gray-500">Role</span>
             <span className="text-gray-900 font-medium">
-              {user.is_admin ? 'Admin' : user.is_manager ? 'Manager' : 'Employee'}
+              {user.is_super_admin ? 'Super Admin' : user.is_admin ? 'Admin' : user.is_manager ? 'Manager' : 'Employee'}
             </span>
           </div>
         </div>
       </div>
+
+      {/* Admin Links */}
+      {user.is_admin && (
+        <div className="card p-4 space-y-2">
+          <h3 className="font-semibold text-gray-900">Administration</h3>
+          <div className="grid grid-cols-2 gap-2">
+            <Link to="/employees" className="btn-secondary text-center text-sm">Employees</Link>
+            <Link to="/clients" className="btn-secondary text-center text-sm">Clients</Link>
+            <Link to="/service-types" className="btn-secondary text-center text-sm">Service Types</Link>
+            <Link to="/locations" className="btn-secondary text-center text-sm">Locations</Link>
+            <Link to="/pay-periods" className="btn-secondary text-center text-sm">Pay Periods</Link>
+            {user.is_super_admin && (
+              <Link to="/companies" className="btn-secondary text-center text-sm">Companies</Link>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Password Change */}
       <div className="card p-4">

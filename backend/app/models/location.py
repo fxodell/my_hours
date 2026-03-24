@@ -7,6 +7,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base, UUIDMixin, TimestampMixin
 
 if TYPE_CHECKING:
+    from app.models.company import Company
     from app.models.client import Client
     from app.models.job_code import JobCode
     from app.models.time_entry import TimeEntry
@@ -14,6 +15,13 @@ if TYPE_CHECKING:
 
 class Location(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "locations"
+
+    company_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("companies.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
 
     client_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),

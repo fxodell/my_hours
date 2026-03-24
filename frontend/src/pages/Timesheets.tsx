@@ -4,6 +4,8 @@ import { Link } from 'react-router-dom'
 import { format, parseISO } from 'date-fns'
 import * as api from '../services/api'
 import { useAuth } from '../contexts/AuthContext'
+import { useCompany } from '../contexts/CompanyContext'
+import CompanySelector from '../components/CompanySelector'
 
 const statusColors = {
   draft: 'bg-gray-100 text-gray-800',
@@ -14,6 +16,7 @@ const statusColors = {
 
 export default function Timesheets() {
   const { user } = useAuth()
+  const { companyParam } = useCompany()
   const queryClient = useQueryClient()
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const isManager = user?.is_manager || user?.is_admin
@@ -24,8 +27,8 @@ export default function Timesheets() {
   const [periodFilter, setPeriodFilter] = useState<string>('')
 
   const { data: employees } = useQuery({
-    queryKey: ['employees'],
-    queryFn: api.getEmployees,
+    queryKey: ['employees', companyParam],
+    queryFn: () => api.getEmployees(companyParam),
     enabled: !!isManager,
   })
 
@@ -35,10 +38,11 @@ export default function Timesheets() {
   })
 
   const { data: timesheets, isLoading } = useQuery({
-    queryKey: ['timesheets', employeeFilter, statusFilter, periodFilter],
+    queryKey: ['timesheets', employeeFilter, statusFilter, periodFilter, companyParam],
     queryFn: () => api.getTimesheets({
       employee_id: employeeFilter || undefined,
       status: statusFilter || undefined,
+      company_id: companyParam,
       pay_period_id: periodFilter || undefined,
     }),
   })
@@ -70,6 +74,7 @@ export default function Timesheets() {
 
   return (
     <div className="space-y-6">
+      <CompanySelector />
       <h2 className="text-xl font-bold text-gray-900">
         {isManager ? 'All Timesheets' : 'My Timesheets'}
       </h2>

@@ -5,7 +5,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.models.service_type import ServiceType
 from app.schemas.service_type import ServiceTypeCreate, ServiceTypeUpdate, ServiceTypeResponse
-from app.api.deps import DB, CurrentUser, CurrentAdmin
+from app.api.deps import DB, CurrentUser, CurrentAdmin, resolve_company_id
 
 router = APIRouter(prefix="/service-types", tags=["service-types"])
 
@@ -15,8 +15,10 @@ async def list_service_types(
     db: DB,
     current_user: CurrentUser,
     active_only: bool = True,
+    company_id: UUID | None = None,
 ) -> list[ServiceType]:
-    query = select(ServiceType)
+    cid = resolve_company_id(current_user, company_id)
+    query = select(ServiceType).where(ServiceType.company_id == cid)
     if active_only:
         query = query.where(ServiceType.is_active == True)
     query = query.order_by(ServiceType.name)
@@ -31,7 +33,7 @@ async def get_service_type(
     current_user: CurrentUser,
 ) -> ServiceType:
     result = await db.execute(
-        select(ServiceType).where(ServiceType.id == service_type_id)
+        select(ServiceType).where(ServiceType.id == service_type_id, ServiceType.company_id == current_user.company_id)
     )
     service_type = result.scalar_one_or_none()
 
@@ -50,7 +52,7 @@ async def create_service_type(
     db: DB,
     current_user: CurrentAdmin,
 ) -> ServiceType:
-    service_type = ServiceType(**service_type_data.model_dump())
+    service_type = ServiceType(company_id=current_user.company_id, **service_type_data.model_dump())
 
     try:
         db.add(service_type)
@@ -74,7 +76,7 @@ async def update_service_type(
     current_user: CurrentAdmin,
 ) -> ServiceType:
     result = await db.execute(
-        select(ServiceType).where(ServiceType.id == service_type_id)
+        select(ServiceType).where(ServiceType.id == service_type_id, ServiceType.company_id == current_user.company_id)
     )
     service_type = result.scalar_one_or_none()
 
@@ -108,7 +110,7 @@ async def delete_service_type(
     current_user: CurrentAdmin,
 ) -> None:
     result = await db.execute(
-        select(ServiceType).where(ServiceType.id == service_type_id)
+        select(ServiceType).where(ServiceType.id == service_type_id, ServiceType.company_id == current_user.company_id)
     )
     service_type = result.scalar_one_or_none()
 

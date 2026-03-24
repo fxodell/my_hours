@@ -3,6 +3,18 @@ import { useQuery } from '@tanstack/react-query'
 import { format, parseISO, subDays } from 'date-fns'
 import * as api from '../services/api'
 import { useAuth } from '../contexts/AuthContext'
+import { useCompany } from '../contexts/CompanyContext'
+import CompanySelector from '../components/CompanySelector'
+import type {
+  PayrollReport,
+  BillingReport,
+  BiweeklyReport,
+  DetailReport,
+  HoursByEmployeeReport,
+  HoursByJobCodeReport,
+} from '../types/reports'
+
+// ---------- shared helpers ----------
 
 const DownloadIcon = () => (
   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -10,35 +22,27 @@ const DownloadIcon = () => (
   </svg>
 )
 
-function DownloadButton({
-  label,
-  onClick,
-  disabled,
-  loading,
-  variant = 'primary',
-}: {
-  label: string
-  onClick: () => void
-  disabled: boolean
-  loading: boolean
-  variant?: 'primary' | 'success'
+const PreviewIcon = () => (
+  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+  </svg>
+)
+
+function ActionButton({ label, onClick, disabled, loading, icon, variant = 'primary' }: {
+  label: string; onClick: () => void; disabled: boolean; loading: boolean
+  icon: React.ReactNode; variant?: 'primary' | 'success' | 'secondary'
 }) {
+  const cls = variant === 'success' ? 'btn-success' : variant === 'secondary' ? 'btn-secondary' : 'btn-primary'
   return (
-    <button
-      onClick={onClick}
-      disabled={disabled || loading}
-      className={variant === 'success' ? 'btn-success' : 'btn-primary'}
-    >
+    <button onClick={onClick} disabled={disabled || loading} className={cls}>
       {loading ? (
         <span className="flex items-center gap-2">
-          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
-          Downloading...
+          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current" />
+          Loading...
         </span>
       ) : (
-        <span className="flex items-center gap-2">
-          <DownloadIcon />
-          {label}
-        </span>
+        <span className="flex items-center gap-2">{icon}{label}</span>
       )}
     </button>
   )
@@ -47,147 +51,418 @@ function DownloadButton({
 function triggerDownload(blob: Blob, filename: string) {
   const url = window.URL.createObjectURL(blob)
   const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  window.URL.revokeObjectURL(url)
-  document.body.removeChild(a)
+  a.href = url; a.download = filename
+  document.body.appendChild(a); a.click()
+  window.URL.revokeObjectURL(url); document.body.removeChild(a)
 }
+
+function Th({ children }: { children: React.ReactNode }) {
+  return <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">{children}</th>
+}
+function Td({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+  return <td className={`px-3 py-2 text-sm text-gray-700 whitespace-nowrap ${className}`}>{children}</td>
+}
+function Num({ v }: { v: number }) {
+  return <span className="tabular-nums">{v.toFixed(1)}</span>
+}
+
+function PreviewWrapper({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <div className="mt-4 border border-gray-200 rounded-lg overflow-hidden">
+      <div className="flex items-center justify-between bg-gray-50 px-4 py-2 border-b">
+        <h4 className="text-sm font-semibold text-gray-700">{title}</h4>
+        <button onClick={onClose} className="text-xs text-gray-500 hover:text-gray-700">Close Preview</button>
+      </div>
+      <div className="overflow-x-auto max-h-[28rem] overflow-y-auto">{children}</div>
+    </div>
+  )
+}
+
+function EmptyState() {
+  return <p className="text-sm text-gray-500 px-4 py-6 text-center">No data found for the selected filters.</p>
+}
+
+// ---------- preview sub-tables ----------
+
+function PayrollPreview({ data }: { data: PayrollReport }) {
+  if (data.data.length === 0) return <EmptyState />
+  const totals = data.data.reduce((acc, r) => ({
+    regular: acc.regular + r.regular_hours,
+    ot: acc.ot + r.overtime_hours,
+    pto: acc.pto + r.total_pto_hours,
+    total: acc.total + r.total_hours,
+  }), { regular: 0, ot: 0, pto: 0, total: 0 })
+
+  return (
+    <>
+      <p className="text-xs text-gray-500 px-4 py-2">{data.data.length} employee(s)</p>
+      <table className="min-w-full" aria-label="Payroll preview">
+        <thead className="bg-gray-50 sticky top-0"><tr>
+          <Th>Employee</Th><Th>Period</Th><Th>Regular</Th><Th>OT</Th><Th>PTO</Th><Th>Total</Th>
+        </tr></thead>
+        <tbody className="divide-y divide-gray-100">
+          {data.data.map((r, i) => (
+            <tr key={i}>
+              <Td>{r.employee_name}</Td>
+              <Td>{r.pay_period_start} – {r.pay_period_end}</Td>
+              <Td><Num v={r.regular_hours} /></Td>
+              <Td><Num v={r.overtime_hours} /></Td>
+              <Td><Num v={r.total_pto_hours} /></Td>
+              <Td className="font-semibold"><Num v={r.total_hours} /></Td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot className="bg-gray-50 font-semibold"><tr>
+          <Td>Total</Td><Td>{'\u00A0'}</Td>
+          <Td><Num v={totals.regular} /></Td><Td><Num v={totals.ot} /></Td>
+          <Td><Num v={totals.pto} /></Td><Td><Num v={totals.total} /></Td>
+        </tr></tfoot>
+      </table>
+    </>
+  )
+}
+
+function BillingPreview({ data }: { data: BillingReport }) {
+  if (data.data.length === 0) return <EmptyState />
+  const clients = Object.entries(data.summary).sort(([a], [b]) => a.localeCompare(b))
+  const totalHours = data.data.reduce((s, r) => s + r.hours, 0)
+  return (
+    <>
+      <p className="text-xs text-gray-500 px-4 py-2">{data.data.length} line(s), {clients.length} client(s), {totalHours.toFixed(1)} total hours</p>
+      <table className="min-w-full" aria-label="Billing summary">
+        <thead className="bg-gray-50 sticky top-0"><tr>
+          <Th>Client</Th><Th>Hours</Th>
+        </tr></thead>
+        <tbody className="divide-y divide-gray-100">
+          {clients.map(([name, { hours }]) => (
+            <tr key={name}><Td>{name}</Td><Td><Num v={hours} /></Td></tr>
+          ))}
+        </tbody>
+        <tfoot className="bg-gray-50 font-semibold"><tr>
+          <Td>Total</Td><Td><Num v={totalHours} /></Td>
+        </tr></tfoot>
+      </table>
+      <details className="px-4 py-2">
+        <summary className="text-xs text-gray-500 cursor-pointer">Show all {data.data.length} line items</summary>
+        <div className="overflow-x-auto mt-2">
+          <table className="min-w-full" aria-label="Billing detail">
+            <thead className="bg-gray-50"><tr>
+              <Th>Date</Th><Th>Client</Th><Th>Location</Th><Th>Employee</Th><Th>Service</Th><Th>Hours</Th>
+            </tr></thead>
+            <tbody className="divide-y divide-gray-100">
+              {data.data.map((r, i) => (
+                <tr key={i}>
+                  <Td>{r.date}</Td><Td>{r.client}</Td><Td>{r.location}</Td>
+                  <Td>{r.employee}</Td><Td>{r.service_type}</Td><Td><Num v={r.hours} /></Td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </>
+  )
+}
+
+function BiweeklyPreview({ data }: { data: BiweeklyReport }) {
+  if (data.data.length === 0) return <EmptyState />
+  const dates = data.data.length > 0
+    ? Object.keys(data.data[0].hours_by_date).sort()
+    : []
+  return (
+    <>
+      {data.data_quality_warnings && data.data_quality_warnings.length > 0 && (
+        <div className="bg-yellow-50 border-b border-yellow-200 px-4 py-2 text-xs text-yellow-800">
+          {data.data_quality_warnings.map((w, i) => <p key={i}>{w}</p>)}
+        </div>
+      )}
+      <p className="text-xs text-gray-500 px-4 py-2">
+        {data.data.length} employee(s) &middot; {data.biweekly_start} to {data.biweekly_end}
+      </p>
+      <table className="min-w-full" aria-label="Biweekly payroll preview">
+        <thead className="bg-gray-50 sticky top-0"><tr>
+          <Th>Employee</Th>
+          {dates.map(d => <Th key={d}>{d.slice(5)}</Th>)}
+          <Th>Reg</Th><Th>OT</Th><Th>PTO</Th><Th>Total</Th>
+        </tr></thead>
+        <tbody className="divide-y divide-gray-100">
+          {data.data.map((r, i) => (
+            <tr key={i}>
+              <Td>{r.employee_name}</Td>
+              {dates.map(d => <Td key={d}>{r.hours_by_date[d] ? <Num v={r.hours_by_date[d]} /> : <span className="text-gray-300">-</span>}</Td>)}
+              <Td><Num v={r.regular_hours} /></Td>
+              <Td><Num v={r.overtime_hours} /></Td>
+              <Td><Num v={r.total_pto_hours} /></Td>
+              <Td className="font-semibold"><Num v={r.total_hours} /></Td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </>
+  )
+}
+
+function DetailPreview({ data }: { data: DetailReport }) {
+  if (data.data.length === 0) return <EmptyState />
+  return (
+    <>
+      <div className="px-4 py-2 text-xs text-gray-500 flex gap-4 flex-wrap">
+        <span>{data.row_count} row(s)</span>
+        <span>Work: {data.grand_total.total_work_hours.toFixed(1)}h</span>
+        <span>PTO: {data.grand_total.total_pto_hours.toFixed(1)}h</span>
+        <span className="font-semibold text-gray-700">Total: {data.grand_total.total_hours.toFixed(1)}h</span>
+      </div>
+      {data.summary.length > 1 && (
+        <div className="px-4 pb-2">
+          <details>
+            <summary className="text-xs text-gray-500 cursor-pointer">Per-employee summary</summary>
+            <div className="mt-1 space-y-0.5">
+              {data.summary.map(s => (
+                <p key={s.employee_id} className="text-xs text-gray-600">
+                  {s.employee_name}: {s.total_work_hours.toFixed(1)}h work + {s.total_pto_hours.toFixed(1)}h PTO = <strong>{s.total_hours.toFixed(1)}h</strong>
+                </p>
+              ))}
+            </div>
+          </details>
+        </div>
+      )}
+      <table className="min-w-full" aria-label="Detail preview">
+        <thead className="bg-gray-50 sticky top-0"><tr>
+          <Th>Date</Th><Th>Employee</Th><Th>Type</Th><Th>Client / PTO</Th><Th>Location</Th><Th>Service</Th><Th>Hours</Th><Th>Status</Th>
+        </tr></thead>
+        <tbody className="divide-y divide-gray-100">
+          {data.data.map((r, i) => (
+            <tr key={i} className={r.entry_kind === 'pto' ? 'bg-blue-50/40' : ''}>
+              <Td>{r.work_date}</Td>
+              <Td>{r.employee_name}</Td>
+              <Td>{r.entry_kind === 'pto' ? 'PTO' : 'Work'}</Td>
+              <Td>{r.entry_kind === 'pto' ? r.pto_type : r.client}</Td>
+              <Td>{r.location}</Td>
+              <Td>{r.service_type}</Td>
+              <Td><Num v={r.hours} /></Td>
+              <Td>{r.timesheet_status}</Td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </>
+  )
+}
+
+function HoursByEmployeePreview({ data }: { data: HoursByEmployeeReport }) {
+  if (data.data.length === 0) return <EmptyState />
+  const total = data.data.reduce((s, r) => s + r.total_hours, 0)
+  return (
+    <>
+      <p className="text-xs text-gray-500 px-4 py-2">{data.data.length} employee(s), {total.toFixed(1)} total hours</p>
+      <table className="min-w-full" aria-label="Hours by employee preview">
+        <thead className="bg-gray-50 sticky top-0"><tr>
+          <Th>Employee</Th><Th>Email</Th><Th>Hours</Th>
+        </tr></thead>
+        <tbody className="divide-y divide-gray-100">
+          {data.data.map((r, i) => (
+            <tr key={i}><Td>{r.employee_name}</Td><Td>{r.email}</Td><Td><Num v={r.total_hours} /></Td></tr>
+          ))}
+        </tbody>
+        <tfoot className="bg-gray-50 font-semibold"><tr>
+          <Td>Total</Td><Td>{'\u00A0'}</Td><Td><Num v={total} /></Td>
+        </tr></tfoot>
+      </table>
+    </>
+  )
+}
+
+function HoursByJobCodePreview({ data }: { data: HoursByJobCodeReport }) {
+  if (data.data.length === 0) return <EmptyState />
+  const total = data.data.reduce((s, r) => s + r.total_hours, 0)
+  return (
+    <>
+      <p className="text-xs text-gray-500 px-4 py-2">{data.data.length} group(s), {total.toFixed(1)} total hours</p>
+      <table className="min-w-full" aria-label="Hours by job code preview">
+        <thead className="bg-gray-50 sticky top-0"><tr>
+          <Th>Client</Th><Th>Service Type</Th><Th>Job Code</Th><Th>Hours</Th>
+        </tr></thead>
+        <tbody className="divide-y divide-gray-100">
+          {data.data.map((r, i) => (
+            <tr key={i}><Td>{r.client}</Td><Td>{r.service_type}</Td><Td>{r.job_code}</Td><Td><Num v={r.total_hours} /></Td></tr>
+          ))}
+        </tbody>
+        <tfoot className="bg-gray-50 font-semibold"><tr>
+          <Td>Total</Td><Td>{'\u00A0'}</Td><Td>{'\u00A0'}</Td><Td><Num v={total} /></Td>
+        </tr></tfoot>
+      </table>
+    </>
+  )
+}
+
+// ---------- main component ----------
 
 export default function Reports() {
   const { user } = useAuth()
+  const { companyParam } = useCompany()
   const isManager = user?.is_manager || user?.is_admin
 
-  // Track multiple concurrent downloads
   const [activeDownloads, setActiveDownloads] = useState<Set<string>>(new Set())
   const [error, setError] = useState('')
 
-  // My Time state (independent)
+  // My Time state
   const [myStartDate, setMyStartDate] = useState(format(subDays(new Date(), 30), 'yyyy-MM-dd'))
   const [myEndDate, setMyEndDate] = useState(format(new Date(), 'yyyy-MM-dd'))
   const [myStatus, setMyStatus] = useState('all')
   const [myPayPeriodStatus, setMyPayPeriodStatus] = useState<'all' | 'open' | 'closed'>('all')
   const [myFormat, setMyFormat] = useState('csv')
   const [myIncludePto, setMyIncludePto] = useState(true)
+  const [myPreviewEnabled, setMyPreviewEnabled] = useState(false)
 
-  // Employee detail state (independent, manager only)
-  const [detailStartDate, setDetailStartDate] = useState(
-    format(subDays(new Date(), 30), 'yyyy-MM-dd')
-  )
+  // Employee detail state
+  const [detailStartDate, setDetailStartDate] = useState(format(subDays(new Date(), 30), 'yyyy-MM-dd'))
   const [detailEndDate, setDetailEndDate] = useState(format(new Date(), 'yyyy-MM-dd'))
   const [selectedEmployees, setSelectedEmployees] = useState<string[]>([])
   const [detailStatus, setDetailStatus] = useState('all')
   const [detailPayPeriodStatus, setDetailPayPeriodStatus] = useState<'all' | 'open' | 'closed'>('all')
   const [detailFormat, setDetailFormat] = useState('csv')
   const [detailIncludePto, setDetailIncludePto] = useState(true)
+  const [detailPreviewEnabled, setDetailPreviewEnabled] = useState(false)
 
-  // Biweekly rollup state (independent)
+  // Biweekly
   const [biweeklyGroup, setBiweeklyGroup] = useState('A')
   const [biweeklyAnchor, setBiweeklyAnchor] = useState('')
   const [biweeklyFormat, setBiweeklyFormat] = useState('csv')
+  const [biweeklyPreviewEnabled, setBiweeklyPreviewEnabled] = useState(false)
 
-  // Pay period reports state
+  // Pay period reports
   const [selectedPayPeriod, setSelectedPayPeriod] = useState<string>('')
+  const [payrollPreviewEnabled, setPayrollPreviewEnabled] = useState(false)
+  const [billingPreviewEnabled, setBillingPreviewEnabled] = useState(false)
 
+  // Hours by Employee / Job Code state
+  const [hbeStartDate, setHbeStartDate] = useState(format(subDays(new Date(), 30), 'yyyy-MM-dd'))
+  const [hbeEndDate, setHbeEndDate] = useState(format(new Date(), 'yyyy-MM-dd'))
+  const [hbePreviewEnabled, setHbePreviewEnabled] = useState(false)
+  const [hbjcStartDate, setHbjcStartDate] = useState(format(subDays(new Date(), 30), 'yyyy-MM-dd'))
+  const [hbjcEndDate, setHbjcEndDate] = useState(format(new Date(), 'yyyy-MM-dd'))
+  const [hbjcClientFilter, setHbjcClientFilter] = useState<string>('')
+  const [hbjcPreviewEnabled, setHbjcPreviewEnabled] = useState(false)
+
+  // Data queries
   const { data: payPeriods, isLoading } = useQuery({
-    queryKey: ['payPeriods'],
-    queryFn: () => api.getPayPeriods(20),
+    queryKey: ['payPeriods', companyParam],
+    queryFn: () => api.getPayPeriods(20, companyParam),
   })
-
   const { data: employees } = useQuery({
-    queryKey: ['employees'],
-    queryFn: api.getEmployees,
+    queryKey: ['employees', companyParam],
+    queryFn: () => api.getEmployees(companyParam),
     enabled: isManager ?? false,
   })
+  const { data: clients } = useQuery({
+    queryKey: ['clients', companyParam],
+    queryFn: () => api.getClients(companyParam),
+    enabled: isManager ?? false,
+  })
+  const groupPeriods = payPeriods?.filter(pp => pp.period_group === biweeklyGroup) || []
 
-  const groupPeriods = payPeriods?.filter((pp) => pp.period_group === biweeklyGroup) || []
+  // === Preview queries (on-demand) ===
+  const myTimePreview = useQuery({
+    queryKey: ['preview', 'my-time', myStartDate, myEndDate, myStatus, myPayPeriodStatus, myIncludePto],
+    queryFn: () => api.previewMyTimeDetail({
+      startDate: myStartDate, endDate: myEndDate,
+      timesheetStatus: myStatus !== 'all' ? myStatus : undefined,
+      payPeriodStatus: myPayPeriodStatus, includePto: myIncludePto,
+    }),
+    enabled: myPreviewEnabled && !!myStartDate && !!myEndDate,
+  })
 
-  const startDownload = (key: string) => {
-    setActiveDownloads((prev) => new Set(prev).add(key))
-    setError('')
-  }
-  const endDownload = (key: string) => {
-    setActiveDownloads((prev) => {
-      const next = new Set(prev)
-      next.delete(key)
-      return next
-    })
-  }
-  const isDownloading = (key: string) => activeDownloads.has(key)
+  const detailPreview = useQuery({
+    queryKey: ['preview', 'detail', selectedEmployees, detailStartDate, detailEndDate, detailStatus, detailPayPeriodStatus, detailIncludePto, companyParam],
+    queryFn: () => api.previewEmployeeDetail({
+      employeeIds: selectedEmployees, startDate: detailStartDate, endDate: detailEndDate,
+      timesheetStatus: detailStatus !== 'all' ? detailStatus : undefined,
+      payPeriodStatus: detailPayPeriodStatus, includePto: detailIncludePto, companyId: companyParam,
+    }),
+    enabled: detailPreviewEnabled && selectedEmployees.length > 0 && !!detailStartDate && !!detailEndDate,
+  })
+
+  const biweeklyPreview = useQuery({
+    queryKey: ['preview', 'biweekly', biweeklyGroup, biweeklyAnchor, companyParam],
+    queryFn: () => api.previewBiweekly({ periodGroup: biweeklyGroup, anchorStartDate: biweeklyAnchor, companyId: companyParam }),
+    enabled: biweeklyPreviewEnabled && !!biweeklyAnchor,
+  })
+
+  const payrollPreview = useQuery({
+    queryKey: ['preview', 'payroll', selectedPayPeriod, companyParam],
+    queryFn: () => api.previewPayroll(selectedPayPeriod, companyParam),
+    enabled: payrollPreviewEnabled && !!selectedPayPeriod,
+  })
+
+  const pp = payPeriods?.find(p => p.id === selectedPayPeriod)
+  const billingPreview = useQuery({
+    queryKey: ['preview', 'billing', pp?.start_date, pp?.end_date, companyParam],
+    queryFn: () => api.previewBilling(pp?.start_date, pp?.end_date, companyParam),
+    enabled: billingPreviewEnabled && !!selectedPayPeriod && !!pp,
+  })
+
+  const hbePreview = useQuery({
+    queryKey: ['preview', 'hbe', hbeStartDate, hbeEndDate, companyParam],
+    queryFn: () => api.previewHoursByEmployee(hbeStartDate, hbeEndDate, companyParam),
+    enabled: hbePreviewEnabled && !!hbeStartDate && !!hbeEndDate,
+  })
+
+  const hbjcPreview = useQuery({
+    queryKey: ['preview', 'hbjc', hbjcStartDate, hbjcEndDate, hbjcClientFilter, companyParam],
+    queryFn: () => api.previewHoursByJobCode({ startDate: hbjcStartDate, endDate: hbjcEndDate, clientId: hbjcClientFilter || undefined, companyId: companyParam }),
+    enabled: hbjcPreviewEnabled && !!hbjcStartDate && !!hbjcEndDate,
+  })
+
+  // download helpers
+  const startDownload = (k: string) => { setActiveDownloads(p => new Set(p).add(k)); setError('') }
+  const endDownload = (k: string) => { setActiveDownloads(p => { const n = new Set(p); n.delete(k); return n }) }
+  const isDownloading = (k: string) => activeDownloads.has(k)
 
   const downloadPeriodReport = async (type: 'payroll' | 'billing' | 'engage') => {
     if (!selectedPayPeriod) return
     startDownload(type)
     try {
       let blob: Blob
-      const pp = payPeriods?.find((p) => p.id === selectedPayPeriod)
       if (type === 'payroll') {
-        blob = await api.getPayrollReport(selectedPayPeriod)
+        blob = await api.getPayrollReport(selectedPayPeriod, companyParam)
       } else if (type === 'billing') {
-        blob = await api.getBillingReport(
-          pp ? pp.start_date : undefined,
-          pp ? pp.end_date : undefined
-        )
+        blob = await api.getBillingReport(pp?.start_date, pp?.end_date, companyParam)
       } else {
-        blob = await api.getEngageExport(selectedPayPeriod)
+        blob = await api.getEngageExport(selectedPayPeriod, companyParam)
       }
       triggerDownload(blob, `${type}-report-${format(new Date(), 'yyyy-MM-dd')}.csv`)
-    } catch (err: any) {
-      setError(err.message || 'Download failed')
-    } finally {
-      endDownload(type)
-    }
+    } catch (err: any) { setError(err.message || 'Download failed') }
+    finally { endDownload(type) }
   }
 
   const downloadMyTime = async () => {
-    if (myStartDate && myEndDate && myStartDate > myEndDate) {
-      setError('Start date must be before end date')
-      return
-    }
+    if (myStartDate > myEndDate) { setError('Start date must be before end date'); return }
     startDownload('my-time')
     try {
       const blob = await api.getMyTimeDetailReport({
-        startDate: myStartDate,
-        endDate: myEndDate,
+        startDate: myStartDate, endDate: myEndDate,
         timesheetStatus: myStatus !== 'all' ? myStatus : undefined,
-        payPeriodStatus: myPayPeriodStatus,
-        includePto: myIncludePto,
-        format: myFormat,
+        payPeriodStatus: myPayPeriodStatus, includePto: myIncludePto, format: myFormat,
       })
-      const ext = myFormat === 'excel' ? 'xlsx' : myFormat
-      triggerDownload(blob, `my-time-${myStartDate}-to-${myEndDate}.${ext}`)
-    } catch (err: any) {
-      setError(err.message || 'Download failed')
-    } finally {
-      endDownload('my-time')
-    }
+      triggerDownload(blob, `my-time-${myStartDate}-to-${myEndDate}.${myFormat === 'excel' ? 'xlsx' : myFormat}`)
+    } catch (err: any) { setError(err.message || 'Download failed') }
+    finally { endDownload('my-time') }
   }
 
   const downloadEmployeeDetail = async () => {
     if (selectedEmployees.length === 0) return
-    if (detailStartDate && detailEndDate && detailStartDate > detailEndDate) {
-      setError('Start date must be before end date')
-      return
-    }
+    if (detailStartDate > detailEndDate) { setError('Start date must be before end date'); return }
     startDownload('employee-detail')
     try {
       const blob = await api.getEmployeeDetailReport({
-        employeeIds: selectedEmployees,
-        startDate: detailStartDate,
-        endDate: detailEndDate,
+        employeeIds: selectedEmployees, startDate: detailStartDate, endDate: detailEndDate,
         timesheetStatus: detailStatus !== 'all' ? detailStatus : undefined,
-        payPeriodStatus: detailPayPeriodStatus,
-        includePto: detailIncludePto,
-        format: detailFormat,
+        payPeriodStatus: detailPayPeriodStatus, includePto: detailIncludePto,
+        format: detailFormat, companyId: companyParam,
       })
-      const ext = detailFormat === 'excel' ? 'xlsx' : detailFormat
-      triggerDownload(blob, `employee-detail-${detailStartDate}-to-${detailEndDate}.${ext}`)
-    } catch (err: any) {
-      setError(err.message || 'Download failed')
-    } finally {
-      endDownload('employee-detail')
-    }
+      triggerDownload(blob, `employee-detail-${detailStartDate}-to-${detailEndDate}.${detailFormat === 'excel' ? 'xlsx' : detailFormat}`)
+    } catch (err: any) { setError(err.message || 'Download failed') }
+    finally { endDownload('employee-detail') }
   }
 
   const downloadBiweekly = async () => {
@@ -195,44 +470,49 @@ export default function Reports() {
     startDownload('biweekly')
     try {
       const blob = await api.getBiweeklyPayrollReport({
-        periodGroup: biweeklyGroup,
-        anchorStartDate: biweeklyAnchor,
-        format: biweeklyFormat,
+        periodGroup: biweeklyGroup, anchorStartDate: biweeklyAnchor,
+        format: biweeklyFormat, companyId: companyParam,
       })
-      const ext = biweeklyFormat === 'excel' ? 'xlsx' : biweeklyFormat
-      triggerDownload(blob, `biweekly-payroll-${biweeklyGroup}-${biweeklyAnchor}.${ext}`)
-    } catch (err: any) {
-      setError(err.message || 'Download failed')
-    } finally {
-      endDownload('biweekly')
-    }
+      triggerDownload(blob, `biweekly-payroll-${biweeklyGroup}-${biweeklyAnchor}.${biweeklyFormat === 'excel' ? 'xlsx' : biweeklyFormat}`)
+    } catch (err: any) { setError(err.message || 'Download failed') }
+    finally { endDownload('biweekly') }
   }
 
-  const toggleEmployee = (id: string) => {
-    setSelectedEmployees((prev) =>
-      prev.includes(id) ? prev.filter((e) => e !== id) : [...prev, id]
-    )
+  const downloadHoursByEmployee = async () => {
+    startDownload('hbe')
+    try {
+      const blob = await api.getHoursByEmployeeReport(hbeStartDate, hbeEndDate, companyParam)
+      triggerDownload(blob, `hours-by-employee-${hbeStartDate}-to-${hbeEndDate}.csv`)
+    } catch (err: any) { setError(err.message || 'Download failed') }
+    finally { endDownload('hbe') }
   }
 
+  const downloadHoursByJobCode = async () => {
+    startDownload('hbjc')
+    try {
+      const blob = await api.getHoursByJobCodeReport({
+        startDate: hbjcStartDate, endDate: hbjcEndDate,
+        clientId: hbjcClientFilter || undefined, companyId: companyParam,
+      })
+      triggerDownload(blob, `hours-by-job-code-${hbjcStartDate}-to-${hbjcEndDate}.csv`)
+    } catch (err: any) { setError(err.message || 'Download failed') }
+    finally { endDownload('hbjc') }
+  }
+
+  const toggleEmployee = (id: string) =>
+    setSelectedEmployees(prev => prev.includes(id) ? prev.filter(e => e !== id) : [...prev, id])
   const selectAllEmployees = () => {
     if (!employees) return
-    if (selectedEmployees.length === employees.length) {
-      setSelectedEmployees([])
-    } else {
-      setSelectedEmployees(employees.map((e) => e.id))
-    }
+    setSelectedEmployees(prev => prev.length === employees.length ? [] : employees.map(e => e.id))
   }
 
   if (isLoading) {
-    return (
-      <div className="flex justify-center py-12">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" />
-      </div>
-    )
+    return <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" /></div>
   }
 
   return (
     <div className="space-y-6 pb-4">
+      <CompanySelector />
       <h2 className="text-xl font-bold text-gray-900">Reports</h2>
 
       {error && (
@@ -241,345 +521,265 @@ export default function Reports() {
         </div>
       )}
 
-      {/* ============ SECTION: My Time Export (all users) ============ */}
+      {/* ============ My Time ============ */}
       <div className="card p-4 space-y-4">
         <div>
-          <h3 className="font-semibold text-gray-900 text-lg">Download My Time</h3>
-          <p className="text-sm text-gray-500">Export your own time entries</p>
+          <h3 className="font-semibold text-gray-900 text-lg">My Time</h3>
+          <p className="text-sm text-gray-500">Preview or export your own time entries</p>
         </div>
-
         <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="label">Start Date</label>
-            <input
-              type="date"
-              value={myStartDate}
-              onChange={(e) => setMyStartDate(e.target.value)}
-              className="input"
-            />
-          </div>
-          <div>
-            <label className="label">End Date</label>
-            <input
-              type="date"
-              value={myEndDate}
-              onChange={(e) => setMyEndDate(e.target.value)}
-              className="input"
-            />
-          </div>
+          <div><label className="label">Start Date</label><input type="date" value={myStartDate} onChange={e => setMyStartDate(e.target.value)} className="input" /></div>
+          <div><label className="label">End Date</label><input type="date" value={myEndDate} onChange={e => setMyEndDate(e.target.value)} className="input" /></div>
         </div>
-
         <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="label">Status Filter</label>
-            <select value={myStatus} onChange={(e) => setMyStatus(e.target.value)} className="input">
-              <option value="all">All Statuses</option>
-              <option value="draft">Draft</option>
-              <option value="submitted">Submitted</option>
-              <option value="approved">Approved</option>
-              <option value="rejected">Rejected</option>
+          <div><label className="label">Status Filter</label>
+            <select value={myStatus} onChange={e => setMyStatus(e.target.value)} className="input">
+              <option value="all">All Statuses</option><option value="draft">Draft</option>
+              <option value="submitted">Submitted</option><option value="approved">Approved</option><option value="rejected">Rejected</option>
             </select>
           </div>
-          <div>
-            <label className="label">Format</label>
-            <select value={myFormat} onChange={(e) => setMyFormat(e.target.value)} className="input">
-              <option value="csv">CSV</option>
-              <option value="excel">Excel</option>
+          <div><label className="label">Format</label>
+            <select value={myFormat} onChange={e => setMyFormat(e.target.value)} className="input">
+              <option value="csv">CSV</option><option value="excel">Excel</option>
             </select>
           </div>
         </div>
-
-        <div>
-          <label className="label">Pay Period Filter</label>
-          <select
-            value={myPayPeriodStatus}
-            onChange={(e) => setMyPayPeriodStatus(e.target.value as any)}
-            className="input"
-          >
-            <option value="all">All Pay Periods</option>
-            <option value="open">Open Only</option>
-            <option value="closed">Closed Only</option>
+        <div><label className="label">Pay Period Filter</label>
+          <select value={myPayPeriodStatus} onChange={e => setMyPayPeriodStatus(e.target.value as any)} className="input">
+            <option value="all">All Pay Periods</option><option value="open">Open Only</option><option value="closed">Closed Only</option>
           </select>
         </div>
-
         <label className="flex items-center gap-2 text-sm text-gray-700">
-          <input
-            type="checkbox"
-            checked={myIncludePto}
-            onChange={(e) => setMyIncludePto(e.target.checked)}
-            className="rounded border-gray-300"
-          />
+          <input type="checkbox" checked={myIncludePto} onChange={e => setMyIncludePto(e.target.checked)} className="rounded border-gray-300" />
           Include PTO entries
         </label>
-
-        <DownloadButton
-          label="Download My Time"
-          onClick={downloadMyTime}
-          disabled={!myStartDate || !myEndDate}
-          loading={isDownloading('my-time')}
-        />
+        <div className="flex gap-2 flex-wrap">
+          <ActionButton label="Preview" onClick={() => setMyPreviewEnabled(true)} disabled={!myStartDate || !myEndDate} loading={myTimePreview.isFetching} icon={<PreviewIcon />} variant="secondary" />
+          <ActionButton label={`Download ${myFormat.toUpperCase()}`} onClick={downloadMyTime} disabled={!myStartDate || !myEndDate} loading={isDownloading('my-time')} icon={<DownloadIcon />} />
+        </div>
+        {myPreviewEnabled && myTimePreview.error && <p className="text-sm text-red-600">{myTimePreview.error instanceof Error ? myTimePreview.error.message : 'Preview failed'}</p>}
+        {myPreviewEnabled && myTimePreview.data && (
+          <PreviewWrapper title="My Time Preview" onClose={() => setMyPreviewEnabled(false)}>
+            <DetailPreview data={myTimePreview.data} />
+          </PreviewWrapper>
+        )}
       </div>
 
-      {/* ============ SECTION: Manager/Admin Reports ============ */}
+      {/* ============ Manager/Admin sections ============ */}
       {isManager && (
         <>
-          {/* Employee Detail Report */}
+          {/* Employee Detail */}
           <div className="card p-4 space-y-4">
             <div>
               <h3 className="font-semibold text-gray-900 text-lg">Employee Detail Report</h3>
-              <p className="text-sm text-gray-500">
-                Day-grouped time entries for selected employees (includes draft timesheets)
-              </p>
+              <p className="text-sm text-gray-500">Day-grouped time entries for selected employees (includes draft timesheets)</p>
             </div>
-
             <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="label">Start Date</label>
-                <input
-                  type="date"
-                  value={detailStartDate}
-                  onChange={(e) => setDetailStartDate(e.target.value)}
-                  className="input"
-                />
-              </div>
-              <div>
-                <label className="label">End Date</label>
-                <input
-                  type="date"
-                  value={detailEndDate}
-                  onChange={(e) => setDetailEndDate(e.target.value)}
-                  className="input"
-                />
-              </div>
+              <div><label className="label">Start Date</label><input type="date" value={detailStartDate} onChange={e => setDetailStartDate(e.target.value)} className="input" /></div>
+              <div><label className="label">End Date</label><input type="date" value={detailEndDate} onChange={e => setDetailEndDate(e.target.value)} className="input" /></div>
             </div>
-
             <div className="grid grid-cols-3 gap-3">
-              <div>
-                <label className="label">Status Filter</label>
-                <select
-                  value={detailStatus}
-                  onChange={(e) => setDetailStatus(e.target.value)}
-                  className="input"
-                >
-                  <option value="all">All Statuses</option>
-                  <option value="draft">Draft</option>
-                  <option value="submitted">Submitted</option>
-                  <option value="approved">Approved</option>
-                  <option value="rejected">Rejected</option>
+              <div><label className="label">Status Filter</label>
+                <select value={detailStatus} onChange={e => setDetailStatus(e.target.value)} className="input">
+                  <option value="all">All Statuses</option><option value="draft">Draft</option>
+                  <option value="submitted">Submitted</option><option value="approved">Approved</option><option value="rejected">Rejected</option>
                 </select>
               </div>
-              <div>
-                <label className="label">Pay Period Filter</label>
-                <select
-                  value={detailPayPeriodStatus}
-                  onChange={(e) => setDetailPayPeriodStatus(e.target.value as any)}
-                  className="input"
-                >
-                  <option value="all">All Pay Periods</option>
-                  <option value="open">Open Only</option>
-                  <option value="closed">Closed Only</option>
+              <div><label className="label">Pay Period Filter</label>
+                <select value={detailPayPeriodStatus} onChange={e => setDetailPayPeriodStatus(e.target.value as any)} className="input">
+                  <option value="all">All</option><option value="open">Open</option><option value="closed">Closed</option>
                 </select>
               </div>
-              <div>
-                <label className="label">Format</label>
-                <select
-                  value={detailFormat}
-                  onChange={(e) => setDetailFormat(e.target.value)}
-                  className="input"
-                >
-                  <option value="csv">CSV</option>
-                  <option value="excel">Excel</option>
+              <div><label className="label">Format</label>
+                <select value={detailFormat} onChange={e => setDetailFormat(e.target.value)} className="input">
+                  <option value="csv">CSV</option><option value="excel">Excel</option>
                 </select>
               </div>
             </div>
-
             <label className="flex items-center gap-2 text-sm text-gray-700">
-              <input
-                type="checkbox"
-                checked={detailIncludePto}
-                onChange={(e) => setDetailIncludePto(e.target.checked)}
-                className="rounded border-gray-300"
-              />
-              Include PTO entries
+              <input type="checkbox" checked={detailIncludePto} onChange={e => setDetailIncludePto(e.target.checked)} className="rounded border-gray-300" /> Include PTO
             </label>
-
-            {/* Employee selector */}
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className="label mb-0">Select Employees</label>
-                <button
-                  type="button"
-                  onClick={selectAllEmployees}
-                  className="text-xs text-primary-600 hover:text-primary-800"
-                >
-                  {selectedEmployees.length === (employees?.length || 0)
-                    ? 'Deselect All'
-                    : 'Select All'}
+                <button type="button" onClick={selectAllEmployees} className="text-xs text-primary-600 hover:text-primary-800">
+                  {selectedEmployees.length === (employees?.length || 0) ? 'Deselect All' : 'Select All'}
                 </button>
               </div>
               <div className="border border-gray-300 rounded-lg max-h-48 overflow-y-auto p-2 space-y-1">
-                {employees?.map((emp) => (
-                  <label
-                    key={emp.id}
-                    className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer text-sm"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedEmployees.includes(emp.id)}
-                      onChange={() => toggleEmployee(emp.id)}
-                      className="rounded border-gray-300"
-                    />
-                    <span>
-                      {emp.last_name}, {emp.first_name}
-                    </span>
+                {employees?.map(emp => (
+                  <label key={emp.id} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer text-sm">
+                    <input type="checkbox" checked={selectedEmployees.includes(emp.id)} onChange={() => toggleEmployee(emp.id)} className="rounded border-gray-300" />
+                    <span>{emp.last_name}, {emp.first_name}</span>
                   </label>
                 ))}
               </div>
-              {selectedEmployees.length > 0 && (
-                <p className="text-xs text-gray-500 mt-1">
-                  {selectedEmployees.length} employee{selectedEmployees.length !== 1 ? 's' : ''}{' '}
-                  selected
-                </p>
-              )}
+              {selectedEmployees.length > 0 && <p className="text-xs text-gray-500 mt-1">{selectedEmployees.length} employee{selectedEmployees.length !== 1 ? 's' : ''} selected</p>}
             </div>
-
-            <DownloadButton
-              label={`Download Detail (${selectedEmployees.length} employee${selectedEmployees.length !== 1 ? 's' : ''})`}
-              onClick={downloadEmployeeDetail}
-              disabled={selectedEmployees.length === 0 || !detailStartDate || !detailEndDate}
-              loading={isDownloading('employee-detail')}
-            />
+            <div className="flex gap-2 flex-wrap">
+              <ActionButton label="Preview" onClick={() => setDetailPreviewEnabled(true)} disabled={selectedEmployees.length === 0 || !detailStartDate || !detailEndDate} loading={detailPreview.isFetching} icon={<PreviewIcon />} variant="secondary" />
+              <ActionButton label={`Download ${detailFormat.toUpperCase()} (${selectedEmployees.length})`} onClick={downloadEmployeeDetail} disabled={selectedEmployees.length === 0 || !detailStartDate || !detailEndDate} loading={isDownloading('employee-detail')} icon={<DownloadIcon />} />
+            </div>
+            {detailPreviewEnabled && detailPreview.error && <p className="text-sm text-red-600">{detailPreview.error instanceof Error ? detailPreview.error.message : 'Preview failed'}</p>}
+            {detailPreviewEnabled && detailPreview.data && (
+              <PreviewWrapper title="Employee Detail Preview" onClose={() => setDetailPreviewEnabled(false)}>
+                <DetailPreview data={detailPreview.data} />
+              </PreviewWrapper>
+            )}
           </div>
 
-          {/* Biweekly Payroll Rollup */}
+          {/* Biweekly */}
           <div className="card p-4 space-y-4">
             <div>
               <h3 className="font-semibold text-gray-900 text-lg">Biweekly Payroll Rollup</h3>
-              <p className="text-sm text-gray-500">
-                One row per employee with daily hours for two consecutive pay periods (approved only)
-              </p>
+              <p className="text-sm text-gray-500">One row per employee with daily hours for two consecutive pay periods (approved only)</p>
             </div>
-
             <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="label">Pay Group</label>
-                <select
-                  value={biweeklyGroup}
-                  onChange={(e) => {
-                    setBiweeklyGroup(e.target.value)
-                    setBiweeklyAnchor('')
-                  }}
-                  className="input"
-                >
-                  <option value="A">Group A</option>
-                  <option value="B">Group B</option>
+              <div><label className="label">Pay Group</label>
+                <select value={biweeklyGroup} onChange={e => { setBiweeklyGroup(e.target.value); setBiweeklyAnchor(''); setBiweeklyPreviewEnabled(false) }} className="input">
+                  <option value="A">Group A</option><option value="B">Group B</option>
                 </select>
               </div>
-              <div>
-                <label className="label">Starting Period</label>
-                <select
-                  value={biweeklyAnchor}
-                  onChange={(e) => setBiweeklyAnchor(e.target.value)}
-                  className="input"
-                >
+              <div><label className="label">Starting Period</label>
+                <select value={biweeklyAnchor} onChange={e => { setBiweeklyAnchor(e.target.value); setBiweeklyPreviewEnabled(false) }} className="input">
                   <option value="">Choose period...</option>
-                  {groupPeriods.map((pp) => (
+                  {groupPeriods.map(pp => (
                     <option key={pp.id} value={pp.start_date}>
-                      {format(parseISO(pp.start_date), 'MMM d')} -{' '}
-                      {format(parseISO(pp.end_date), 'MMM d, yyyy')}
+                      {format(parseISO(pp.start_date), 'MMM d')} – {format(parseISO(pp.end_date), 'MMM d, yyyy')}
                     </option>
                   ))}
                 </select>
               </div>
             </div>
-
-            <div>
-              <label className="label">Format</label>
-              <select
-                value={biweeklyFormat}
-                onChange={(e) => setBiweeklyFormat(e.target.value)}
-                className="input"
-              >
-                <option value="csv">CSV</option>
-                <option value="excel">Excel</option>
+            <div><label className="label">Format</label>
+              <select value={biweeklyFormat} onChange={e => setBiweeklyFormat(e.target.value)} className="input">
+                <option value="csv">CSV</option><option value="excel">Excel</option>
               </select>
             </div>
-
-            <DownloadButton
-              label="Download Biweekly Rollup"
-              onClick={downloadBiweekly}
-              disabled={!biweeklyAnchor}
-              loading={isDownloading('biweekly')}
-            />
+            <div className="flex gap-2 flex-wrap">
+              <ActionButton label="Preview" onClick={() => setBiweeklyPreviewEnabled(true)} disabled={!biweeklyAnchor} loading={biweeklyPreview.isFetching} icon={<PreviewIcon />} variant="secondary" />
+              <ActionButton label={`Download ${biweeklyFormat.toUpperCase()}`} onClick={downloadBiweekly} disabled={!biweeklyAnchor} loading={isDownloading('biweekly')} icon={<DownloadIcon />} />
+            </div>
+            {biweeklyPreviewEnabled && biweeklyPreview.error && <p className="text-sm text-red-600">{biweeklyPreview.error instanceof Error ? biweeklyPreview.error.message : 'Preview failed'}</p>}
+            {biweeklyPreviewEnabled && biweeklyPreview.data && (
+              <PreviewWrapper title="Biweekly Rollup Preview" onClose={() => setBiweeklyPreviewEnabled(false)}>
+                <BiweeklyPreview data={biweeklyPreview.data} />
+              </PreviewWrapper>
+            )}
           </div>
 
-          {/* Pay-Period-Based Reports */}
+          {/* Pay Period Reports */}
           <div className="card p-4 space-y-4">
             <div>
               <h3 className="font-semibold text-gray-900 text-lg">Pay Period Reports</h3>
-              <p className="text-sm text-gray-500">
-                Standard payroll and billing exports by pay period
-              </p>
+              <p className="text-sm text-gray-500">Standard payroll and billing exports by pay period</p>
             </div>
-
-            <div>
-              <label className="label">Select Pay Period</label>
-              <select
-                value={selectedPayPeriod}
-                onChange={(e) => setSelectedPayPeriod(e.target.value)}
-                className="input"
-              >
+            <div><label className="label">Select Pay Period</label>
+              <select value={selectedPayPeriod} onChange={e => { setSelectedPayPeriod(e.target.value); setPayrollPreviewEnabled(false); setBillingPreviewEnabled(false) }} className="input">
                 <option value="">Choose a pay period...</option>
-                {payPeriods?.map((pp) => (
+                {payPeriods?.map(pp => (
                   <option key={pp.id} value={pp.id}>
-                    {pp.period_group} - {format(parseISO(pp.start_date), 'MMM d')} to{' '}
-                    {format(parseISO(pp.end_date), 'MMM d, yyyy')} ({pp.status})
+                    {pp.period_group} - {format(parseISO(pp.start_date), 'MMM d')} to {format(parseISO(pp.end_date), 'MMM d, yyyy')} ({pp.status})
                   </option>
                 ))}
               </select>
             </div>
 
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="font-medium text-gray-900">Payroll Report</h4>
-                  <p className="text-xs text-gray-500">Employee hours summary</p>
+              {/* Payroll */}
+              <div>
+                <div className="flex items-center justify-between">
+                  <div><h4 className="font-medium text-gray-900">Payroll Report</h4><p className="text-xs text-gray-500">Employee hours summary</p></div>
+                  <div className="flex gap-2">
+                    <ActionButton label="Preview" onClick={() => setPayrollPreviewEnabled(true)} disabled={!selectedPayPeriod} loading={payrollPreview.isFetching} icon={<PreviewIcon />} variant="secondary" />
+                    <ActionButton label="CSV" onClick={() => downloadPeriodReport('payroll')} disabled={!selectedPayPeriod} loading={isDownloading('payroll')} icon={<DownloadIcon />} />
+                  </div>
                 </div>
-                <DownloadButton
-                  label="CSV"
-                  onClick={() => downloadPeriodReport('payroll')}
-                  disabled={!selectedPayPeriod}
-                  loading={isDownloading('payroll')}
-                />
+                {payrollPreviewEnabled && payrollPreview.error && <p className="text-sm text-red-600 mt-1">{payrollPreview.error instanceof Error ? payrollPreview.error.message : 'Preview failed'}</p>}
+                {payrollPreviewEnabled && payrollPreview.data && (
+                  <PreviewWrapper title="Payroll Preview" onClose={() => setPayrollPreviewEnabled(false)}>
+                    <PayrollPreview data={payrollPreview.data} />
+                  </PreviewWrapper>
+                )}
               </div>
 
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="font-medium text-gray-900">Billing Report</h4>
-                  <p className="text-xs text-gray-500">Hours by client for invoicing</p>
+              {/* Billing */}
+              <div>
+                <div className="flex items-center justify-between">
+                  <div><h4 className="font-medium text-gray-900">Billing Report</h4><p className="text-xs text-gray-500">Hours by client for invoicing</p></div>
+                  <div className="flex gap-2">
+                    <ActionButton label="Preview" onClick={() => setBillingPreviewEnabled(true)} disabled={!selectedPayPeriod} loading={billingPreview.isFetching} icon={<PreviewIcon />} variant="secondary" />
+                    <ActionButton label="CSV" onClick={() => downloadPeriodReport('billing')} disabled={!selectedPayPeriod} loading={isDownloading('billing')} icon={<DownloadIcon />} />
+                  </div>
                 </div>
-                <DownloadButton
-                  label="CSV"
-                  onClick={() => downloadPeriodReport('billing')}
-                  disabled={!selectedPayPeriod}
-                  loading={isDownloading('billing')}
-                />
+                {billingPreviewEnabled && billingPreview.error && <p className="text-sm text-red-600 mt-1">{billingPreview.error instanceof Error ? billingPreview.error.message : 'Preview failed'}</p>}
+                {billingPreviewEnabled && billingPreview.data && (
+                  <PreviewWrapper title="Billing Preview" onClose={() => setBillingPreviewEnabled(false)}>
+                    <BillingPreview data={billingPreview.data} />
+                  </PreviewWrapper>
+                )}
               </div>
 
+              {/* Engage */}
               <div className="flex items-center justify-between">
                 <div>
                   <h4 className="font-medium text-gray-900">Engage Export</h4>
-                  <p className="text-xs text-gray-500">Formatted for Engage payroll import</p>
+                  <p className="text-xs text-gray-500">Formatted for Engage payroll import (download only)</p>
                 </div>
-                <DownloadButton
-                  label="Export"
-                  onClick={() => downloadPeriodReport('engage')}
-                  disabled={!selectedPayPeriod}
-                  loading={isDownloading('engage')}
-                  variant="success"
-                />
+                <ActionButton label="Export" onClick={() => downloadPeriodReport('engage')} disabled={!selectedPayPeriod} loading={isDownloading('engage')} icon={<DownloadIcon />} variant="success" />
               </div>
             </div>
+          </div>
+
+          {/* Hours by Employee */}
+          <div className="card p-4 space-y-4">
+            <div>
+              <h3 className="font-semibold text-gray-900 text-lg">Hours by Employee</h3>
+              <p className="text-sm text-gray-500">Total approved hours per employee for a date range</p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div><label className="label">Start Date</label><input type="date" value={hbeStartDate} onChange={e => setHbeStartDate(e.target.value)} className="input" /></div>
+              <div><label className="label">End Date</label><input type="date" value={hbeEndDate} onChange={e => setHbeEndDate(e.target.value)} className="input" /></div>
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              <ActionButton label="Preview" onClick={() => setHbePreviewEnabled(true)} disabled={!hbeStartDate || !hbeEndDate} loading={hbePreview.isFetching} icon={<PreviewIcon />} variant="secondary" />
+              <ActionButton label="Download CSV" onClick={downloadHoursByEmployee} disabled={!hbeStartDate || !hbeEndDate} loading={isDownloading('hbe')} icon={<DownloadIcon />} />
+            </div>
+            {hbePreviewEnabled && hbePreview.error && <p className="text-sm text-red-600">{hbePreview.error instanceof Error ? hbePreview.error.message : 'Preview failed'}</p>}
+            {hbePreviewEnabled && hbePreview.data && (
+              <PreviewWrapper title="Hours by Employee Preview" onClose={() => setHbePreviewEnabled(false)}>
+                <HoursByEmployeePreview data={hbePreview.data} />
+              </PreviewWrapper>
+            )}
+          </div>
+
+          {/* Hours by Job Code */}
+          <div className="card p-4 space-y-4">
+            <div>
+              <h3 className="font-semibold text-gray-900 text-lg">Hours by Job Code</h3>
+              <p className="text-sm text-gray-500">Approved hours grouped by client, service type, and job code</p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div><label className="label">Start Date</label><input type="date" value={hbjcStartDate} onChange={e => setHbjcStartDate(e.target.value)} className="input" /></div>
+              <div><label className="label">End Date</label><input type="date" value={hbjcEndDate} onChange={e => setHbjcEndDate(e.target.value)} className="input" /></div>
+            </div>
+            <div>
+              <label className="label">Client Filter</label>
+              <select value={hbjcClientFilter} onChange={e => { setHbjcClientFilter(e.target.value); setHbjcPreviewEnabled(false) }} className="input">
+                <option value="">All Clients</option>
+                {clients?.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              <ActionButton label="Preview" onClick={() => setHbjcPreviewEnabled(true)} disabled={!hbjcStartDate || !hbjcEndDate} loading={hbjcPreview.isFetching} icon={<PreviewIcon />} variant="secondary" />
+              <ActionButton label="Download CSV" onClick={downloadHoursByJobCode} disabled={!hbjcStartDate || !hbjcEndDate} loading={isDownloading('hbjc')} icon={<DownloadIcon />} />
+            </div>
+            {hbjcPreviewEnabled && hbjcPreview.error && <p className="text-sm text-red-600">{hbjcPreview.error instanceof Error ? hbjcPreview.error.message : 'Preview failed'}</p>}
+            {hbjcPreviewEnabled && hbjcPreview.data && (
+              <PreviewWrapper title="Hours by Job Code Preview" onClose={() => setHbjcPreviewEnabled(false)}>
+                <HoursByJobCodePreview data={hbjcPreview.data} />
+              </PreviewWrapper>
+            )}
           </div>
         </>
       )}

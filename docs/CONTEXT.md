@@ -5,14 +5,17 @@
 MyHours is a mobile-first employee timesheet system that replaces spreadsheet-based payroll tracking with role-based web workflows and exportable reports.
 
 Current implementation includes:
+- **Multi-tenant company isolation:** Each company's data (employees, clients, timesheets, pay periods, etc.) is fully isolated via `company_id` foreign keys on all business entities
 - Employee time and PTO entry by pay period
 - Timesheet list ordered by pay period (newest first), then by employee name (last name, first name) for stable, scannable manager view
 - Timesheet workflow: `draft -> submitted -> approved/rejected`, with manager/admin reopen
-- Role-based access controls for employee, manager, and admin use cases
+- Weekly billing workflow inside each bi-weekly timesheet: two Monday-Sunday billing weeks (`open -> submitted -> approved -> billed`, with manager reopen)
+- Role-based access controls for employee, manager, admin, and super-admin use cases
 - Manager reporting exports (payroll, biweekly payroll rollup, employee detail with draft support, billing report by client, location, site code, employee, service type; hours by employee; hours by job code)
 - Employee self-service export (`/api/reports/my-time-detail`) for downloading own time entries (all statuses)
 - Staggered bi-weekly pay period groups (A/B)
 - Password change + password reset request/reset flows
+- Company CRUD for super-admins (`/api/companies`)
 
 ## Current Architecture
 
@@ -49,7 +52,9 @@ The backend uses two SQLAlchemy engines from `backend/app/core/database.py`:
 
 - `backend/app/main.py` - FastAPI app configuration and router registration
 - `backend/app/api/` - Route handlers (`auth`, `timesheets`, `reports`, `site_requests`, admin CRUD)
-- `backend/app/api/deps.py` - Auth and role dependency aliases (`CurrentUser`, `CurrentManager`, `CurrentAdmin`)
+- `backend/app/api/deps.py` - Auth and role dependency aliases (`CurrentUser`, `CurrentManager`, `CurrentAdmin`, `CurrentSuperAdmin`, `TenantId`)
+- `backend/app/api/companies.py` - Company CRUD (super-admin only)
+- `backend/app/models/company.py` - Company model (name, slug, is_active)
 - `backend/app/models/` - SQLAlchemy models + mixins
 - `backend/app/schemas/` - Pydantic schemas
 - `backend/scripts/seed_data.py` - Seed reference data + initial admin
@@ -73,6 +78,7 @@ Time and PTO entry editability:
 - `draft` and `rejected` timesheets are editable (add/update/delete entries)
 - `submitted` and `approved` timesheets are read-only in the employee UI; edit/add/delete controls are hidden and a status-specific banner is shown
 - Both time entry and PTO entry dates can be entered for any day within the active pay period bounds (past dates included), while dates outside the pay period are rejected by backend validation
+- Entries in a billing week marked `approved` or `billed` are locked from employee add/edit/delete operations for both time and PTO
 - Adding a time or PTO entry to a `rejected` timesheet auto-resets it to `draft`
 - Frontend entry forms (`TimeEntry.tsx`, `PTOEntry.tsx`) accept a `?timesheet=<id>` query parameter to target a specific timesheet; `TimesheetDetail.tsx` passes this when linking to "Add Time" / "Add PTO"
 - Shared editability helpers in `frontend/src/timesheetStatus.ts`: `isTimesheetEditable()`, `isTimesheetReadOnly()`, `getEntryDateMax()`
@@ -90,10 +96,19 @@ Site request workflow:
 7. **Reject:** Manager provides a rejection reason. Request is set to `rejected` with `rejection_reason`. The employee is notified by email.
 8. Employees can only view their own requests; managers/admins see all requests.
 
-Access model:
+Access model (all roles are company-scoped):
 - **Employee:** own timesheets and entries; create and view own site requests; employee list returns summary response (no hourly_rate or integration IDs)
-- **Manager:** approvals, reports, broader timesheet visibility; approve/reject all site requests; employee list returns full response (includes hourly_rate)
-- **Admin:** manager capabilities plus employee/client/service/location/pay-period administration; can reset any employee's password via `POST /api/auth/admin-reset-password` (from the Employees page, key icon per employee opens a modal)
+- **Manager:** approvals, reports, broader timesheet visibility; approve/reject all site requests; employee list returns full response (includes hourly_rate) — all within own company only
+- **Admin:** manager capabilities plus employee/client/service/location/pay-period administration; can reset passwords for employees in same company only via `POST /api/auth/admin-reset-password`
+- **Super Admin:** (`is_super_admin=true`) all admin capabilities plus cross-company access: company CRUD (`/api/companies`), can reset passwords for any employee in any company, can create employees in other companies
+
+Multi-tenant isolation:
+- Every business entity (Employee, Client, ServiceType, PayPeriod, Timesheet, Location, JobCode, SiteRequest) has a `company_id` FK
+- All list/get/update/delete endpoints filter by `current_user.company_id`, returning 404 for cross-company access attempts
+- Employee `email` remains globally unique (login by email alone works without company context)
+- Tenant-scoped unique constraints: `(company_id, name)` for clients/service types, `(company_id, period_group, start_date)` for pay periods
+- JWT tokens include `company_id` claim
+- Admin password reset is scoped to same company (super-admin can reset any)
 
 Soft delete pattern:
 - Employees, Locations, JobCodes, Clients, and ServiceTypes use soft delete (set `is_active = false`) rather than hard delete
@@ -119,14 +134,14 @@ Pay period model:
 ## Testing State
 
 - Backend tests currently run against in-memory SQLite (`backend/tests/conftest.py`)
-- Test coverage includes: auth, health, time entry CRUD (past-day, out-of-period, post-submit blocking), PTO entry CRUD (date validation, post-submit blocking), employee detail reports, biweekly payroll reports, site requests
-- Engine and fixtures are function-scoped: each test gets a fresh database — all 42 tests pass together without isolation issues
+- Test coverage includes: auth, health, time entry CRUD (past-day, out-of-period, post-submit blocking), PTO entry CRUD (date validation, post-submit blocking), employee detail reports, biweekly payroll reports, site requests, multi-tenant isolation (cross-company access denied for employees/clients/timesheets/reports/password-reset, company CRUD permissions)
+- Engine and fixtures are function-scoped: each test gets a fresh database — all 114 tests pass together without isolation issues
 
 ## Frontend Patterns and Conventions
 
 - **Entry forms** (`TimeEntry.tsx`, `TimeEntryEdit.tsx`, `PTOEntry.tsx`, `PTOEntryEdit.tsx`) use cascading selects (Client → Location → Job Code) with `useEffect` + `setValue` resets on parent change
 - **Pay period selector** in entry forms shows "Current" badge based on date comparison (`start_date <= today <= end_date`) and grace-period countdown for closed periods
-- **Report downloads** use concurrent download tracking (`activeDownloads` Set) with date range validation (`startDate <= endDate`) before fetching
+- **Report preview + download** — each report section on the Reports page has both a **Preview** button (fetches `format=json` via TanStack Query on demand) and a **Download** button (CSV/Excel blob). Preview renders summary stats and a scrollable table inline; the Engage export remains download-only. Typed JSON response interfaces live in `frontend/src/types/reports.ts`. Preview queries use `enabled: false` until the user clicks Preview to avoid unnecessary API calls
 - **Profile page** auto-dismisses success messages after 5 seconds
 - **Validation approach:** Backend is the source of truth for all business rules; frontend provides UX-level validation (required fields, date ranges) but does not duplicate backend logic
 

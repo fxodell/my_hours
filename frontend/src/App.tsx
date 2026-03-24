@@ -16,6 +16,7 @@ import Clients from './pages/Clients'
 import ServiceTypes from './pages/ServiceTypes'
 import LocationsPage from './pages/Locations'
 import PayPeriodsPage from './pages/PayPeriods'
+import Companies from './pages/Companies'
 import SiteRequests from './pages/SiteRequests'
 import SiteRequestForm from './pages/SiteRequestForm'
 import Profile from './pages/Profile'
@@ -70,6 +71,24 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
   }
 
   if (!user?.is_admin) {
+    return <Navigate to="/" replace />
+  }
+
+  return <>{children}</>
+}
+
+function SuperAdminRoute({ children }: { children: React.ReactNode }) {
+  const { user, isLoading } = useAuth()
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+      </div>
+    )
+  }
+
+  if (!user?.is_super_admin) {
     return <Navigate to="/" replace />
   }
 
@@ -145,6 +164,14 @@ export default function App() {
             <AdminRoute>
               <PayPeriodsPage />
             </AdminRoute>
+          }
+        />
+        <Route
+          path="companies"
+          element={
+            <SuperAdminRoute>
+              <Companies />
+            </SuperAdminRoute>
           }
         />
         <Route path="site-requests" element={<SiteRequests />} />

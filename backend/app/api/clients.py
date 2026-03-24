@@ -5,7 +5,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.models.client import Client
 from app.schemas.client import ClientCreate, ClientUpdate, ClientResponse
-from app.api.deps import DB, CurrentUser, CurrentAdmin
+from app.api.deps import DB, CurrentUser, CurrentAdmin, resolve_company_id
 
 router = APIRouter(prefix="/clients", tags=["clients"])
 
@@ -17,8 +17,10 @@ async def list_clients(
     active_only: bool = True,
     limit: int = 100,
     offset: int = 0,
+    company_id: UUID | None = None,
 ) -> list[Client]:
-    query = select(Client)
+    cid = resolve_company_id(current_user, company_id)
+    query = select(Client).where(Client.company_id == cid)
     if active_only:
         query = query.where(Client.is_active == True)
     query = query.order_by(Client.name).offset(offset).limit(limit)
@@ -33,7 +35,9 @@ async def get_client(
     db: DB,
     current_user: CurrentUser,
 ) -> Client:
-    result = await db.execute(select(Client).where(Client.id == client_id))
+    result = await db.execute(
+        select(Client).where(Client.id == client_id, Client.company_id == current_user.company_id)
+    )
     client = result.scalar_one_or_none()
 
     if not client:
@@ -51,7 +55,7 @@ async def create_client(
     db: DB,
     current_user: CurrentAdmin,
 ) -> Client:
-    client = Client(**client_data.model_dump())
+    client = Client(company_id=current_user.company_id, **client_data.model_dump())
 
     try:
         db.add(client)
@@ -74,7 +78,9 @@ async def update_client(
     db: DB,
     current_user: CurrentAdmin,
 ) -> Client:
-    result = await db.execute(select(Client).where(Client.id == client_id))
+    result = await db.execute(
+        select(Client).where(Client.id == client_id, Client.company_id == current_user.company_id)
+    )
     client = result.scalar_one_or_none()
 
     if not client:
@@ -106,7 +112,9 @@ async def delete_client(
     db: DB,
     current_user: CurrentAdmin,
 ) -> None:
-    result = await db.execute(select(Client).where(Client.id == client_id))
+    result = await db.execute(
+        select(Client).where(Client.id == client_id, Client.company_id == current_user.company_id)
+    )
     client = result.scalar_one_or_none()
 
     if not client:

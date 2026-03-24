@@ -22,6 +22,7 @@
 - [ ] Verify PWA icon files exist in public directory (pwa-192x192.png, pwa-512x512.png)
 
 ## Completed
+- [x] Multi-tenant company isolation: Company model, company_id FK on all entities, tenant-scoped queries in all endpoints, super-admin role, Company CRUD API + UI, tenant-scoped password reset, 26 isolation tests, migration with backfill
 - [x] Fix `TimeEntry.tsx` pay period selector: compute `isCurrentPeriod` from dates instead of hardcoded `true` (matching `PTOEntry.tsx` behavior)
 - [x] Fix `Profile.tsx` success message: auto-dismiss after 5 seconds instead of persisting forever
 - [x] Fix `SearchableSelect.tsx` keyboard navigation: guard ArrowDown against empty filtered list

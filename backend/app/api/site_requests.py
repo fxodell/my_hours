@@ -53,12 +53,15 @@ async def create_site_request(
     background_tasks: BackgroundTasks,
 ) -> dict:
     # Verify client exists
-    result = await db.execute(select(Client).where(Client.id == data.client_id))
+    result = await db.execute(
+        select(Client).where(Client.id == data.client_id, Client.company_id == current_user.company_id)
+    )
     client = result.scalar_one_or_none()
     if not client:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found")
 
     site_request = SiteRequest(
+        company_id=current_user.company_id,
         employee_id=current_user.id,
         client_id=data.client_id,
         site_name=data.site_name,
@@ -93,6 +96,7 @@ async def list_site_requests(
         select(SiteRequest, Employee, Client)
         .join(Employee, SiteRequest.employee_id == Employee.id)
         .join(Client, SiteRequest.client_id == Client.id)
+        .where(SiteRequest.company_id == current_user.company_id)
     )
 
     # Non-managers only see their own requests
@@ -124,6 +128,7 @@ async def approve_site_request(
         .join(Employee, SiteRequest.employee_id == Employee.id)
         .join(Client, SiteRequest.client_id == Client.id)
         .where(SiteRequest.id == request_id)
+        .where(SiteRequest.company_id == current_user.company_id)
     )
     row = result.one_or_none()
     if not row:
@@ -137,10 +142,11 @@ async def approve_site_request(
             detail=f"Cannot approve request with status '{site_request.status}'",
         )
 
-    # Check for duplicate location (same client + site_name)
+    # Check for duplicate location (same company + client + site_name)
     dup_result = await db.execute(
         select(Location).where(
             and_(
+                Location.company_id == current_user.company_id,
                 Location.client_id == site_request.client_id,
                 Location.site_name == site_request.site_name,
             )
@@ -152,6 +158,7 @@ async def approve_site_request(
         location = existing_location
     else:
         location = Location(
+            company_id=current_user.company_id,
             client_id=site_request.client_id,
             site_name=site_request.site_name,
             region=site_request.region,
@@ -162,10 +169,11 @@ async def approve_site_request(
 
     created_job_code = None
     if site_request.job_code:
-        # Check for duplicate job code on this location
+        # Check for duplicate job code on this location (same company)
         dup_jc = await db.execute(
             select(JobCode).where(
                 and_(
+                    JobCode.company_id == current_user.company_id,
                     JobCode.location_id == location.id,
                     JobCode.code == site_request.job_code,
                 )
@@ -176,6 +184,7 @@ async def approve_site_request(
             created_job_code = existing_jc
         else:
             created_job_code = JobCode(
+                company_id=current_user.company_id,
                 location_id=location.id,
                 code=site_request.job_code,
                 description=site_request.job_code_description,
@@ -225,6 +234,7 @@ async def reject_site_request(
         .join(Employee, SiteRequest.employee_id == Employee.id)
         .join(Client, SiteRequest.client_id == Client.id)
         .where(SiteRequest.id == request_id)
+        .where(SiteRequest.company_id == current_user.company_id)
     )
     row = result.one_or_none()
     if not row:

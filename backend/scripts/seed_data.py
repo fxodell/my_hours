@@ -18,6 +18,7 @@ from app.core.config import settings
 from app.core.security import get_password_hash
 from app.models import (
     Base,
+    Company,
     Client,
     ServiceType,
     Employee,
@@ -28,7 +29,25 @@ engine = create_engine(settings.database_url_sync)
 SessionLocal = sessionmaker(bind=engine)
 
 
-def seed_clients(session):
+def seed_company(session):
+    """Create or retrieve the default company."""
+    existing = session.query(Company).filter_by(slug="default-company").first()
+    if not existing:
+        company = Company(
+            name="Default Company",
+            slug="default-company",
+            is_active=True,
+        )
+        session.add(company)
+        session.commit()
+        print(f"  Created default company: {company.name}")
+        return company
+    else:
+        print(f"  Default company already exists: {existing.name}")
+        return existing
+
+
+def seed_clients(session, company):
     """Seed clients from the Excel analysis."""
     clients = [
         {"name": "Apache", "industry": "O&G"},
@@ -49,15 +68,17 @@ def seed_clients(session):
     ]
 
     for client_data in clients:
-        existing = session.query(Client).filter_by(name=client_data["name"]).first()
+        existing = session.query(Client).filter_by(
+            company_id=company.id, name=client_data["name"]
+        ).first()
         if not existing:
-            session.add(Client(**client_data))
+            session.add(Client(company_id=company.id, **client_data))
             print(f"  Created client: {client_data['name']}")
 
     session.commit()
 
 
-def seed_service_types(session):
+def seed_service_types(session, company):
     """Seed service types from the Excel analysis."""
     service_types = [
         {"name": "Automation", "is_billable": True},
@@ -90,21 +111,24 @@ def seed_service_types(session):
     ]
 
     for st_data in service_types:
-        existing = session.query(ServiceType).filter_by(name=st_data["name"]).first()
+        existing = session.query(ServiceType).filter_by(
+            company_id=company.id, name=st_data["name"]
+        ).first()
         if not existing:
-            session.add(ServiceType(**st_data))
+            session.add(ServiceType(company_id=company.id, **st_data))
             print(f"  Created service type: {st_data['name']}")
 
     session.commit()
 
 
-def seed_admin_user(session):
+def seed_admin_user(session, company):
     """Create an admin user for initial access."""
     admin_email = "admin@myhours.local"
     existing = session.query(Employee).filter_by(email=admin_email).first()
 
     if not existing:
         admin = Employee(
+            company_id=company.id,
             email=admin_email,
             password_hash=get_password_hash("admin123"),  # Change in production!
             first_name="Admin",
@@ -122,12 +146,12 @@ def seed_admin_user(session):
         print(f"  Admin user already exists: {admin_email}")
 
 
-def seed_pay_periods(session):
-    """Generate initial weekly Sun-Sat pay periods."""
+def seed_pay_periods(session, company):
+    """Generate initial weekly Mon-Sun pay periods."""
     today = date.today()
-    # Find most recent Sunday (weekday(): 0=Mon, 6=Sun)
-    days_since_sunday = (today.weekday() + 1) % 7
-    start_date = today - timedelta(days=days_since_sunday)
+    # Find most recent Monday (weekday(): 0=Mon, 6=Sun)
+    days_since_monday = today.weekday()
+    start_date = today - timedelta(days=days_since_monday)
 
     for i in range(8):  # 8 weekly periods
         period_start = start_date + timedelta(days=7 * i)
@@ -141,6 +165,7 @@ def seed_pay_periods(session):
 
         if not existing:
             pay_period = PayPeriod(
+                company_id=company.id,
                 period_group="A",
                 start_date=period_start,
                 end_date=period_end,
@@ -158,17 +183,20 @@ def main():
     session = SessionLocal()
 
     try:
+        print("\nSeeding default company...")
+        company = seed_company(session)
+
         print("\nSeeding clients...")
-        seed_clients(session)
+        seed_clients(session, company)
 
         print("\nSeeding service types...")
-        seed_service_types(session)
+        seed_service_types(session, company)
 
         print("\nSeeding admin user...")
-        seed_admin_user(session)
+        seed_admin_user(session, company)
 
         print("\nSeeding pay periods...")
-        seed_pay_periods(session)
+        seed_pay_periods(session, company)
 
         print("\nSeed complete!")
 

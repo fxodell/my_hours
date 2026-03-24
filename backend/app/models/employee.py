@@ -2,17 +2,26 @@ import uuid
 from datetime import date, datetime
 from typing import TYPE_CHECKING, Optional
 from decimal import Decimal
-from sqlalchemy import String, Boolean, Date, DateTime, Numeric
+from sqlalchemy import String, Boolean, Date, DateTime, Numeric, ForeignKey
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, UUIDMixin, TimestampMixin
 
 if TYPE_CHECKING:
+    from app.models.company import Company
     from app.models.timesheet import Timesheet
 
 
 class Employee(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "employees"
+
+    company_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("companies.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
 
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -27,6 +36,7 @@ class Employee(Base, UUIDMixin, TimestampMixin):
     hourly_rate: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 2))
     is_manager: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_super_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     # External system IDs

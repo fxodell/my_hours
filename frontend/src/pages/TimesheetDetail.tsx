@@ -3,8 +3,9 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, parseISO } from 'date-fns'
 import * as api from '../services/api'
-import type { TimeEntry } from '../types'
+import type { BillingWeek, TimeEntry } from '../types'
 import { isTimesheetEditable, isTimesheetReadOnly } from '../timesheetStatus'
+import { useAuth } from '../contexts/AuthContext'
 
 function formatTime(time: string): string {
   const [h, m] = time.split(':').map(Number)
@@ -20,7 +21,16 @@ const statusColors = {
   rejected: 'bg-red-100 text-red-800',
 }
 
+const billingWeekStatusColors: Record<BillingWeek['status'], string> = {
+  open: 'bg-gray-100 text-gray-800',
+  submitted: 'bg-yellow-100 text-yellow-800',
+  approved: 'bg-blue-100 text-blue-800',
+  billed: 'bg-green-100 text-green-800',
+  reopened: 'bg-orange-100 text-orange-800',
+}
+
 export default function TimesheetDetail() {
+  const { user } = useAuth()
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -51,14 +61,20 @@ export default function TimesheetDetail() {
     enabled: !!timesheet?.pay_period_id,
   })
 
+  const { data: billingWeeks } = useQuery({
+    queryKey: ['billingWeeks', id],
+    queryFn: () => api.getBillingWeeks(id!),
+    enabled: !!id,
+  })
+
   const { data: clients } = useQuery({
     queryKey: ['clients'],
-    queryFn: api.getClients,
+    queryFn: () => api.getClients(),
   })
 
   const { data: serviceTypes } = useQuery({
     queryKey: ['serviceTypes'],
-    queryFn: api.getServiceTypes,
+    queryFn: () => api.getServiceTypes(),
   })
 
   const clientMap = new Map(clients?.map((c) => [c.id, c]))
@@ -89,11 +105,26 @@ export default function TimesheetDetail() {
     },
   })
 
+  const billingWeekMutation = useMutation({
+    mutationFn: async ({ weekId, action }: { weekId: string; action: 'submit' | 'approve' | 'reopen' | 'mark-billed' }) => {
+      if (action === 'submit') return api.submitBillingWeek(id!, weekId)
+      if (action === 'approve') return api.approveBillingWeek(id!, weekId)
+      if (action === 'reopen') return api.reopenBillingWeek(id!, weekId)
+      return api.markBilledBillingWeek(id!, weekId)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['billingWeeks', id] })
+      queryClient.invalidateQueries({ queryKey: ['timeEntries', id] })
+      queryClient.invalidateQueries({ queryKey: ['ptoEntries', id] })
+    },
+  })
+
   const totalWorkHours = entries?.reduce((sum, entry) => sum + Number(entry.hours), 0) || 0
   const totalPTOHours = ptoEntries?.reduce((sum, entry) => sum + Number(entry.hours), 0) || 0
   const totalHours = totalWorkHours + totalPTOHours
   const canEdit = isTimesheetEditable(timesheet?.status)
   const canSubmit = canEdit && ((entries?.length ?? 0) > 0 || (ptoEntries?.length ?? 0) > 0)
+  const isManager = !!(user?.is_manager || user?.is_admin)
 
   // Group entries by date
   const entriesByDate = entries?.reduce((acc, entry) => {
@@ -156,6 +187,64 @@ export default function TimesheetDetail() {
           {timesheet.status === 'submitted'
             ? 'This timesheet has been submitted and is pending approval.'
             : 'This timesheet has been approved and is read-only.'}
+        </div>
+      )}
+
+      {billingWeeks && billingWeeks.length > 0 && (
+        <div className="card p-4 space-y-3">
+          <h3 className="font-semibold text-gray-900">Weekly Billing Status</h3>
+          {billingWeeks.map((week) => (
+            <div key={week.id} className="border rounded-lg p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium text-gray-900">
+                  {format(parseISO(week.week_start_date), 'EEE, MMM d')} - {format(parseISO(week.week_end_date), 'EEE, MMM d')}
+                </p>
+                <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${billingWeekStatusColors[week.status]}`}>
+                  {week.status.charAt(0).toUpperCase() + week.status.slice(1)}
+                </span>
+              </div>
+              {isManager && (
+                <div className="flex flex-wrap gap-2">
+                  {(week.status === 'open' || week.status === 'reopened') && (
+                    <button
+                      className="btn-secondary text-xs py-1 px-2"
+                      onClick={() => billingWeekMutation.mutate({ weekId: week.id, action: 'submit' })}
+                      disabled={billingWeekMutation.isPending}
+                    >
+                      Submit
+                    </button>
+                  )}
+                  {week.status === 'submitted' && (
+                    <button
+                      className="btn-primary text-xs py-1 px-2"
+                      onClick={() => billingWeekMutation.mutate({ weekId: week.id, action: 'approve' })}
+                      disabled={billingWeekMutation.isPending}
+                    >
+                      Approve
+                    </button>
+                  )}
+                  {week.status === 'approved' && (
+                    <button
+                      className="btn-success text-xs py-1 px-2"
+                      onClick={() => billingWeekMutation.mutate({ weekId: week.id, action: 'mark-billed' })}
+                      disabled={billingWeekMutation.isPending}
+                    >
+                      Mark Billed
+                    </button>
+                  )}
+                  {(week.status === 'submitted' || week.status === 'approved' || week.status === 'billed') && (
+                    <button
+                      className="btn-secondary text-xs py-1 px-2"
+                      onClick={() => billingWeekMutation.mutate({ weekId: week.id, action: 'reopen' })}
+                      disabled={billingWeekMutation.isPending}
+                    >
+                      Reopen
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       )}
 

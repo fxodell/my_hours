@@ -90,7 +90,8 @@ Entry forms use a Client → Location → Job Code cascade:
 
 Tests use **in-memory SQLite** (aiosqlite) instead of PostgreSQL. Key fixtures in `backend/tests/conftest.py`:
 - `client` - AsyncClient with ASGI transport, DB dependency override
-- `test_user` / `test_manager` - Pre-created employees
+- `test_company` - Default test company
+- `test_user` / `test_manager` - Pre-created employees (assigned to test_company)
 - `auth_headers` / `manager_auth_headers` - JWT auth headers for test users
 
 All fixtures are function-scoped: each test gets a fresh in-memory SQLite database, so tests can run together without isolation issues.
@@ -98,7 +99,8 @@ All fixtures are function-scoped: each test gets a fresh in-memory SQLite databa
 ## Data Model
 
 ### Core Entities
-- **Employee** - Users with `pay_period_group` (A or B), roles (`is_manager`, `is_admin`)
+- **Company** - Tenant entity with `name`, `slug` (unique), `is_active`; all business entities have `company_id` FK
+- **Employee** - Users with `pay_period_group` (A or B), roles (`is_manager`, `is_admin`, `is_super_admin`), `company_id`
 - **PayPeriod** - Bi-weekly periods, grouped by A/B for staggered schedules
 - **Timesheet** - One per employee per pay period (draft -> submitted -> approved/rejected)
 - **TimeEntry** - Hours worked: client, location, job code, service type, work mode
@@ -141,18 +143,24 @@ Three tiers enforced via dependency injection in `backend/app/api/deps.py`:
 - **`CurrentUser`** — Any authenticated active employee
 - **`CurrentManager`** — `is_manager=True` OR `is_admin=True`
 - **`CurrentAdmin`** — `is_admin=True` only
+- **`CurrentSuperAdmin`** — `is_super_admin=True` only
 
-| Capability | Employee | Manager | Admin |
-|---|---|---|---|
-| Own timesheets & entries | Yes | Yes | Yes |
-| View employee list (summary only, no rates) | Yes | - | - |
-| View employee list (full, with hourly_rate) | - | Yes | Yes |
-| View all timesheets | - | Yes | Yes |
-| Approve/reject/reopen/delete timesheets | - | Yes | Yes |
-| Reports & exports | - | Yes | Yes |
-| Manage employees, clients, service types, locations, pay periods | - | - | Yes |
+All roles are company-scoped. Endpoints filter by `current_user.company_id` and return 404 for cross-company access.
 
-Frontend enforces via `ProtectedRoute`, `ManagerRoute`, `AdminRoute` wrappers in `App.tsx`.
+| Capability | Employee | Manager | Admin | Super Admin |
+|---|---|---|---|---|
+| Own timesheets & entries | Yes | Yes | Yes | Yes |
+| View employee list (summary only, no rates) | Yes | - | - | - |
+| View employee list (full, with hourly_rate) | - | Yes | Yes | Yes |
+| View all timesheets (own company) | - | Yes | Yes | Yes |
+| Approve/reject/reopen/delete timesheets | - | Yes | Yes | Yes |
+| Reports & exports (own company) | - | Yes | Yes | Yes |
+| Manage employees, clients, service types, locations, pay periods | - | - | Yes | Yes |
+| Reset passwords (own company) | - | - | Yes | Yes |
+| Reset passwords (any company) | - | - | - | Yes |
+| Company CRUD (`/api/companies`) | - | - | - | Yes |
+
+Frontend enforces via `ProtectedRoute`, `ManagerRoute`, `AdminRoute`, `SuperAdminRoute` wrappers in `App.tsx`.
 
 ## Authentication
 
@@ -163,6 +171,13 @@ Frontend enforces via `ProtectedRoute`, `ManagerRoute`, `AdminRoute` wrappers in
 - Password reset: `POST /api/auth/request-reset` + `POST /api/auth/reset-password`
 
 ## API Endpoints (Key)
+
+### Companies (Super-Admin only)
+- `GET /api/companies` - List companies (active_only param)
+- `GET /api/companies/{id}` - Get company
+- `POST /api/companies` - Create company
+- `PATCH /api/companies/{id}` - Update company
+- `DELETE /api/companies/{id}` - Soft-delete (deactivate) company
 
 ### Timesheets
 - `GET /api/timesheets` - List timesheets (ordered by pay period start_date desc, then employee last_name, first_name)

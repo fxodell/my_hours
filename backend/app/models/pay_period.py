@@ -1,18 +1,28 @@
+import uuid
 from datetime import date
 from typing import TYPE_CHECKING, Optional
-from sqlalchemy import String, Date, UniqueConstraint
+from sqlalchemy import String, Date, ForeignKey, UniqueConstraint
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, UUIDMixin, TimestampMixin
 
 if TYPE_CHECKING:
+    from app.models.company import Company
     from app.models.timesheet import Timesheet
 
 
 class PayPeriod(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "pay_periods"
     __table_args__ = (
-        UniqueConstraint("period_group", "start_date", name="uq_pay_period_group_start"),
+        UniqueConstraint("company_id", "period_group", "start_date", name="uq_pay_period_company_group_start"),
+    )
+
+    company_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("companies.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
 
     period_group: Mapped[str] = mapped_column(String(10), nullable=False)  # 'A' or 'B'

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base, UUIDMixin, TimestampMixin
 
 if TYPE_CHECKING:
+    from app.models.company import Company
     from app.models.employee import Employee
     from app.models.client import Client
     from app.models.location import Location
@@ -16,6 +17,13 @@ if TYPE_CHECKING:
 
 class SiteRequest(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "site_requests"
+
+    company_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("companies.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
 
     employee_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),

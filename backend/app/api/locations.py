@@ -6,7 +6,7 @@ from app.models.location import Location
 from app.models.job_code import JobCode
 from app.schemas.location import LocationCreate, LocationUpdate, LocationResponse
 from app.schemas.job_code import JobCodeCreate, JobCodeUpdate, JobCodeResponse
-from app.api.deps import DB, CurrentUser, CurrentAdmin
+from app.api.deps import DB, CurrentUser, CurrentAdmin, resolve_company_id
 
 router = APIRouter(prefix="/locations", tags=["locations"])
 
@@ -19,8 +19,10 @@ async def list_locations(
     active_only: bool = True,
     limit: int = 200,
     offset: int = 0,
+    company_id: UUID | None = None,
 ) -> list[Location]:
-    query = select(Location)
+    cid = resolve_company_id(current_user, company_id)
+    query = select(Location).where(Location.company_id == cid)
 
     if client_id:
         query = query.where(Location.client_id == client_id)
@@ -40,7 +42,9 @@ async def get_location(
     db: DB,
     current_user: CurrentUser,
 ) -> Location:
-    result = await db.execute(select(Location).where(Location.id == location_id))
+    result = await db.execute(
+        select(Location).where(Location.id == location_id, Location.company_id == current_user.company_id)
+    )
     location = result.scalar_one_or_none()
 
     if not location:
@@ -58,7 +62,7 @@ async def create_location(
     db: DB,
     current_user: CurrentAdmin,
 ) -> Location:
-    location = Location(**location_data.model_dump())
+    location = Location(company_id=current_user.company_id, **location_data.model_dump())
     db.add(location)
     await db.commit()
     await db.refresh(location)
@@ -72,7 +76,9 @@ async def update_location(
     db: DB,
     current_user: CurrentAdmin,
 ) -> Location:
-    result = await db.execute(select(Location).where(Location.id == location_id))
+    result = await db.execute(
+        select(Location).where(Location.id == location_id, Location.company_id == current_user.company_id)
+    )
     location = result.scalar_one_or_none()
 
     if not location:
@@ -96,7 +102,9 @@ async def delete_location(
     db: DB,
     current_user: CurrentAdmin,
 ) -> None:
-    result = await db.execute(select(Location).where(Location.id == location_id))
+    result = await db.execute(
+        select(Location).where(Location.id == location_id, Location.company_id == current_user.company_id)
+    )
     location = result.scalar_one_or_none()
 
     if not location:
@@ -118,7 +126,7 @@ async def list_job_codes(
     current_user: CurrentUser,
     active_only: bool = True,
 ) -> list[JobCode]:
-    query = select(JobCode).where(JobCode.location_id == location_id)
+    query = select(JobCode).where(JobCode.location_id == location_id, JobCode.company_id == current_user.company_id)
 
     if active_only:
         query = query.where(JobCode.is_active == True)
@@ -140,15 +148,17 @@ async def create_job_code(
     db: DB,
     current_user: CurrentAdmin,
 ) -> JobCode:
-    # Verify location exists
-    result = await db.execute(select(Location).where(Location.id == location_id))
+    # Verify location exists and belongs to same company
+    result = await db.execute(
+        select(Location).where(Location.id == location_id, Location.company_id == current_user.company_id)
+    )
     if not result.scalar_one_or_none():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Location not found",
         )
 
-    job_code = JobCode(location_id=location_id, **job_code_data.model_dump(exclude={"location_id"}))
+    job_code = JobCode(company_id=current_user.company_id, location_id=location_id, **job_code_data.model_dump(exclude={"location_id"}))
     db.add(job_code)
     await db.commit()
     await db.refresh(job_code)
@@ -166,6 +176,7 @@ async def delete_job_code(
         select(JobCode)
         .where(JobCode.id == job_code_id)
         .where(JobCode.location_id == location_id)
+        .where(JobCode.company_id == current_user.company_id)
     )
     job_code = result.scalar_one_or_none()
 
@@ -189,7 +200,7 @@ async def list_all_job_codes(
     active_only: bool = True,
 ) -> list[JobCode]:
     """Get all job codes, optionally filtered by client."""
-    query = select(JobCode).join(Location)
+    query = select(JobCode).join(Location).where(JobCode.company_id == current_user.company_id)
 
     if client_id:
         query = query.where(Location.client_id == client_id)

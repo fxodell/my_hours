@@ -16,6 +16,7 @@ from sqlalchemy.pool import StaticPool
 from app.main import app
 from app.core.database import get_db
 from app.models.base import Base
+from app.models.company import Company
 from app.models.employee import Employee
 from app.core.security import get_password_hash, create_access_token
 
@@ -70,11 +71,26 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
 
 
 @pytest_asyncio.fixture
-async def test_user(db_session: AsyncSession) -> Employee:
+async def test_company(db_session: AsyncSession) -> Company:
+    """Create a default test company."""
+    company = Company(
+        name="Test Company",
+        slug="test-company",
+        is_active=True,
+    )
+    db_session.add(company)
+    await db_session.flush()
+    await db_session.refresh(company)
+    return company
+
+
+@pytest_asyncio.fixture
+async def test_user(db_session: AsyncSession, test_company: Company) -> Employee:
     """Create a test user."""
     from datetime import date
 
     user = Employee(
+        company_id=test_company.id,
         email="test@example.com",
         password_hash=get_password_hash("testpassword"),
         first_name="Test",
@@ -90,11 +106,12 @@ async def test_user(db_session: AsyncSession) -> Employee:
 
 
 @pytest_asyncio.fixture
-async def test_manager(db_session: AsyncSession) -> Employee:
+async def test_manager(db_session: AsyncSession, test_company: Company) -> Employee:
     """Create a test manager user."""
     from datetime import date
 
     user = Employee(
+        company_id=test_company.id,
         email="manager@example.com",
         password_hash=get_password_hash("testpassword"),
         first_name="Test",

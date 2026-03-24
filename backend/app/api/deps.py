@@ -78,8 +78,39 @@ async def get_current_admin(
     return current_user
 
 
+async def get_current_super_admin(
+    current_user: Annotated[Employee, Depends(get_current_user)],
+) -> Employee:
+    if not current_user.is_super_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Super admin privileges required",
+        )
+    return current_user
+
+
+async def get_tenant_id(
+    current_user: Annotated[Employee, Depends(get_current_active_user)],
+) -> UUID:
+    """Extract the company_id from the current user for tenant-scoped queries."""
+    return current_user.company_id
+
+
+def resolve_company_id(current_user: Employee, company_id: UUID | None = None) -> UUID:
+    """Resolve effective company_id for a request.
+
+    Super-admins may pass a company_id to operate on another company.
+    Regular users always get their own company_id (the param is ignored).
+    """
+    if company_id and current_user.is_super_admin:
+        return company_id
+    return current_user.company_id
+
+
 # Type aliases for cleaner route signatures
 CurrentUser = Annotated[Employee, Depends(get_current_active_user)]
 CurrentManager = Annotated[Employee, Depends(get_current_manager)]
 CurrentAdmin = Annotated[Employee, Depends(get_current_admin)]
+CurrentSuperAdmin = Annotated[Employee, Depends(get_current_super_admin)]
 DB = Annotated[AsyncSession, Depends(get_db)]
+TenantId = Annotated[UUID, Depends(get_tenant_id)]

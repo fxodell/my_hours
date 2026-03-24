@@ -14,7 +14,7 @@ from app.models.employee import Employee
 from app.models.client import Client
 from app.models.service_type import ServiceType
 from app.models.pay_period import PayPeriod
-from app.api.deps import DB, CurrentUser, CurrentManager
+from app.api.deps import DB, CurrentUser, CurrentManager, resolve_company_id
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -27,16 +27,19 @@ async def payroll_report(
     start_date: date | None = None,
     end_date: date | None = None,
     format: str = "json",  # json, csv, excel
+    company_id: UUID | None = None,
 ):
     """
     Generate payroll report for approved timesheets.
     Can filter by pay period or date range.
     Export as JSON, CSV, or Excel.
     """
+    cid = resolve_company_id(current_user, company_id)
     # Build query for approved timesheets
     query = (
         select(Timesheet)
         .join(PayPeriod, Timesheet.pay_period_id == PayPeriod.id)
+        .where(Timesheet.company_id == cid)
         .where(Timesheet.status == "approved")
         .options(
             selectinload(Timesheet.employee),
@@ -131,15 +134,18 @@ async def billing_report(
     start_date: date | None = None,
     end_date: date | None = None,
     format: str = "json",
+    company_id: UUID | None = None,
 ):
     """
     Generate billing report by client for invoicing.
     Groups hours by client, employee, service type, and date.
     """
+    cid = resolve_company_id(current_user, company_id)
     # Get all approved time entries
     query = (
         select(TimeEntry)
         .join(Timesheet)
+        .where(Timesheet.company_id == cid)
         .where(Timesheet.status == "approved")
         .where(TimeEntry.is_billable == True)
         .options(
@@ -259,10 +265,12 @@ async def hours_by_employee(
     start_date: date | None = None,
     end_date: date | None = None,
     format: str = "json",
+    company_id: UUID | None = None,
 ):
     """
     Report showing total hours per employee.
     """
+    cid = resolve_company_id(current_user, company_id)
     query = (
         select(
             Employee.id,
@@ -273,6 +281,7 @@ async def hours_by_employee(
         )
         .join(Timesheet, Timesheet.employee_id == Employee.id)
         .join(TimeEntry, TimeEntry.timesheet_id == Timesheet.id)
+        .where(Employee.company_id == cid)
         .where(Timesheet.status == "approved")
         .group_by(Employee.id)
         .order_by(Employee.last_name, Employee.first_name)
@@ -332,13 +341,16 @@ async def hours_by_job_code(
     start_date: date | None = None,
     end_date: date | None = None,
     format: str = "json",
+    company_id: UUID | None = None,
 ):
     """
     Report showing hours grouped by client and service type (as proxy for job code).
     """
+    cid = resolve_company_id(current_user, company_id)
     query = (
         select(TimeEntry)
         .join(Timesheet)
+        .where(Timesheet.company_id == cid)
         .where(Timesheet.status == "approved")
         .options(
             selectinload(TimeEntry.client),
@@ -412,6 +424,7 @@ async def engage_payroll_export(
     db: DB,
     current_user: CurrentManager,
     pay_period_id: UUID,
+    company_id: UUID | None = None,
 ):
     """
     Generate payroll export formatted for Engage payroll system.
@@ -427,9 +440,10 @@ async def engage_payroll_export(
     - Vehicle Reimbursement
     - Bonus Amount
     """
+    cid = resolve_company_id(current_user, company_id)
     # Get pay period info
     period_result = await db.execute(
-        select(PayPeriod).where(PayPeriod.id == pay_period_id)
+        select(PayPeriod).where(PayPeriod.id == pay_period_id, PayPeriod.company_id == cid)
     )
     pay_period = period_result.scalar_one_or_none()
 
@@ -442,6 +456,7 @@ async def engage_payroll_export(
     # Get approved timesheets for this pay period
     query = (
         select(Timesheet)
+        .where(Timesheet.company_id == cid)
         .where(Timesheet.pay_period_id == pay_period_id)
         .where(Timesheet.status == "approved")
         .options(
@@ -564,6 +579,7 @@ async def payroll_biweekly_report(
     period_group: str,
     anchor_start_date: date,
     format: str = "json",
+    company_id: UUID | None = None,
 ):
     """
     Biweekly payroll rollup — one row per employee for two consecutive
@@ -578,6 +594,7 @@ async def payroll_biweekly_report(
     starting at anchor_start_date. Returns 400 if either period is missing
     or they are not consecutive weeks.
     """
+    cid = resolve_company_id(current_user, company_id)
     if period_group not in ("A", "B"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -587,6 +604,7 @@ async def payroll_biweekly_report(
     # Load the two consecutive weekly periods for this group
     result = await db.execute(
         select(PayPeriod)
+        .where(PayPeriod.company_id == cid)
         .where(PayPeriod.period_group == period_group)
         .where(PayPeriod.start_date >= anchor_start_date)
         .order_by(PayPeriod.start_date.asc())
@@ -628,6 +646,7 @@ async def payroll_biweekly_report(
     period_ids = [week1.id, week2.id]
     result = await db.execute(
         select(Timesheet)
+        .where(Timesheet.company_id == cid)
         .where(Timesheet.pay_period_id.in_(period_ids))
         .where(Timesheet.status == "approved")
         .options(
@@ -873,6 +892,7 @@ async def _run_detail_report(
     include_pto: bool,
     format_param: str,
     filename_hint: str,
+    company_id: UUID | None = None,
 ):
     """Core logic shared by employee-detail and my-time-detail."""
 
@@ -895,6 +915,7 @@ async def _run_detail_report(
         select(TimeEntry)
         .join(Timesheet, TimeEntry.timesheet_id == Timesheet.id)
         .join(PayPeriod, Timesheet.pay_period_id == PayPeriod.id)
+        .where(Timesheet.company_id == company_id)
         .where(Timesheet.employee_id.in_(employee_ids))
         .where(TimeEntry.work_date >= start_date)
         .where(TimeEntry.work_date <= end_date)
@@ -1002,6 +1023,7 @@ async def _run_detail_report(
             select(PTOEntry)
             .join(Timesheet, PTOEntry.timesheet_id == Timesheet.id)
             .join(PayPeriod, Timesheet.pay_period_id == PayPeriod.id)
+            .where(Timesheet.company_id == company_id)
             .where(Timesheet.employee_id.in_(employee_ids))
             .where(PTOEntry.pto_date >= start_date)
             .where(PTOEntry.pto_date <= end_date)
@@ -1199,6 +1221,7 @@ async def employee_detail_report(
     pay_period_status: str | None = None,
     include_pto: bool = True,
     format: str = "json",
+    company_id: UUID | None = None,
 ):
     """
     Day-grouped detail report for one or many employees (manager/admin only).
@@ -1247,10 +1270,12 @@ async def employee_detail_report(
         )
 
     filename = f"employee_detail_{start_date}_{end_date}"
+    cid = resolve_company_id(current_user, company_id)
     return await _run_detail_report(
         db, ids, start_date, end_date,
         timesheet_status, pay_period_status,
         include_pto, format, filename,
+        company_id=cid,
     )
 
 
@@ -1282,4 +1307,5 @@ async def my_time_detail_report(
         db, [current_user.id], start_date, end_date,
         timesheet_status, pay_period_status,
         include_pto, format, filename,
+        company_id=current_user.company_id,
     )

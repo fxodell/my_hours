@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.models.pay_period import PayPeriod
 from app.schemas.pay_period import PayPeriodCreate, PayPeriodUpdate, PayPeriodResponse
-from app.api.deps import DB, CurrentUser, CurrentAdmin
+from app.api.deps import DB, CurrentUser, CurrentAdmin, resolve_company_id
 
 router = APIRouter(prefix="/pay-periods", tags=["pay-periods"])
 
@@ -18,8 +18,10 @@ async def list_pay_periods(
     period_group: str | None = None,
     status_filter: str | None = None,
     limit: int = 20,
+    company_id: UUID | None = None,
 ) -> list[PayPeriod]:
-    query = select(PayPeriod)
+    cid = resolve_company_id(current_user, company_id)
+    query = select(PayPeriod).where(PayPeriod.company_id == cid)
 
     if period_group:
         query = query.where(PayPeriod.period_group == period_group)
@@ -44,6 +46,7 @@ async def get_current_pay_period(
     # First try to find an open pay period that contains today's date for the employee's group
     result = await db.execute(
         select(PayPeriod)
+        .where(PayPeriod.company_id == current_user.company_id)
         .where(PayPeriod.status == "open")
         .where(PayPeriod.period_group == current_user.pay_period_group)
         .where(PayPeriod.start_date <= today)
@@ -56,6 +59,7 @@ async def get_current_pay_period(
     if not pay_period:
         result = await db.execute(
             select(PayPeriod)
+            .where(PayPeriod.company_id == current_user.company_id)
             .where(PayPeriod.status == "open")
             .where(PayPeriod.period_group == current_user.pay_period_group)
             .where(PayPeriod.start_date >= today)
@@ -92,6 +96,7 @@ async def get_recent_pay_periods(
 
     result = await db.execute(
         select(PayPeriod)
+        .where(PayPeriod.company_id == current_user.company_id)
         .where(PayPeriod.period_group == current_user.pay_period_group)
         .where(PayPeriod.start_date <= today)
         .where(PayPeriod.end_date >= cutoff)
@@ -115,7 +120,9 @@ async def get_pay_period(
     db: DB,
     current_user: CurrentUser,
 ) -> PayPeriod:
-    result = await db.execute(select(PayPeriod).where(PayPeriod.id == pay_period_id))
+    result = await db.execute(
+        select(PayPeriod).where(PayPeriod.id == pay_period_id, PayPeriod.company_id == current_user.company_id)
+    )
     pay_period = result.scalar_one_or_none()
 
     if not pay_period:
@@ -133,7 +140,7 @@ async def create_pay_period(
     db: DB,
     current_user: CurrentAdmin,
 ) -> PayPeriod:
-    pay_period = PayPeriod(**pay_period_data.model_dump())
+    pay_period = PayPeriod(company_id=current_user.company_id, **pay_period_data.model_dump())
 
     try:
         db.add(pay_period)
@@ -158,13 +165,13 @@ async def generate_pay_periods(
     period_group: str = "A",
 ) -> list[PayPeriod]:
     """
-    Generate weekly Sun-Sat pay periods starting from a date.
-    Start date must be a Sunday. period_group defaults to 'A'.
+    Generate weekly Mon-Sun pay periods starting from a date.
+    Start date must be a Monday. period_group defaults to 'A'.
     """
-    if start_date.weekday() != 6:  # 6 = Sunday
+    if start_date.weekday() != 0:  # 0 = Monday
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Start date must be a Sunday",
+            detail="Start date must be a Monday",
         )
 
     if period_group not in ("A", "B"):
@@ -179,9 +186,10 @@ async def generate_pay_periods(
         period_start = start_date + timedelta(days=7 * i)
         period_end = period_start + timedelta(days=6)
 
-        # Check if period already exists for this group and start date
+        # Check if period already exists for this company, group and start date
         result = await db.execute(
             select(PayPeriod)
+            .where(PayPeriod.company_id == current_user.company_id)
             .where(PayPeriod.start_date == period_start)
             .where(PayPeriod.period_group == period_group)
         )
@@ -189,6 +197,7 @@ async def generate_pay_periods(
 
         if not existing:
             pay_period = PayPeriod(
+                company_id=current_user.company_id,
                 period_group=period_group,
                 start_date=period_start,
                 end_date=period_end,
@@ -212,7 +221,9 @@ async def update_pay_period(
     db: DB,
     current_user: CurrentAdmin,
 ) -> PayPeriod:
-    result = await db.execute(select(PayPeriod).where(PayPeriod.id == pay_period_id))
+    result = await db.execute(
+        select(PayPeriod).where(PayPeriod.id == pay_period_id, PayPeriod.company_id == current_user.company_id)
+    )
     pay_period = result.scalar_one_or_none()
 
     if not pay_period:
@@ -237,7 +248,9 @@ async def close_pay_period(
     db: DB,
     current_user: CurrentAdmin,
 ) -> PayPeriod:
-    result = await db.execute(select(PayPeriod).where(PayPeriod.id == pay_period_id))
+    result = await db.execute(
+        select(PayPeriod).where(PayPeriod.id == pay_period_id, PayPeriod.company_id == current_user.company_id)
+    )
     pay_period = result.scalar_one_or_none()
 
     if not pay_period:

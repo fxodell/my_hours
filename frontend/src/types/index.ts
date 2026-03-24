@@ -1,3 +1,12 @@
+export interface Company {
+  id: string
+  name: string
+  slug: string
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
 export interface User {
   id: string
   email: string
@@ -6,9 +15,12 @@ export interface User {
   full_name: string
   hire_date: string
   pay_period_group: string
+  hourly_rate?: number
   is_manager: boolean
   is_admin: boolean
+  is_super_admin: boolean
   is_active: boolean
+  company_id: string
 }
 
 export interface Client {
@@ -61,6 +73,20 @@ export interface Timesheet {
   approved_by: string | null
   rejection_reason: string | null
   employee_name: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface BillingWeek {
+  id: string
+  timesheet_id: string
+  week_start_date: string
+  week_end_date: string
+  status: 'open' | 'submitted' | 'approved' | 'billed' | 'reopened'
+  submitted_at: string | null
+  approved_at: string | null
+  approved_by: string | null
+  billed_at: string | null
   created_at: string
   updated_at: string
 }

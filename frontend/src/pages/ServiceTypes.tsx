@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import * as api from '../services/api'
 import { useAuth } from '../contexts/AuthContext'
+import { useCompany } from '../contexts/CompanyContext'
+import CompanySelector from '../components/CompanySelector'
 import type { ServiceType } from '../types'
 
 interface ServiceTypeFormData {
@@ -11,6 +13,7 @@ interface ServiceTypeFormData {
 
 export default function ServiceTypes() {
   const { user } = useAuth()
+  const { companyParam } = useCompany()
   const queryClient = useQueryClient()
   const [showForm, setShowForm] = useState(false)
   const [editingType, setEditingType] = useState<ServiceType | null>(null)
@@ -22,8 +25,8 @@ export default function ServiceTypes() {
   const [error, setError] = useState('')
 
   const { data: serviceTypes, isLoading } = useQuery({
-    queryKey: ['serviceTypes'],
-    queryFn: api.getServiceTypes,
+    queryKey: ['serviceTypes', companyParam],
+    queryFn: () => api.getServiceTypes(companyParam),
   })
 
   const createMutation = useMutation({
@@ -101,6 +104,7 @@ export default function ServiceTypes() {
 
   return (
     <div className="space-y-6">
+      <CompanySelector />
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-bold text-gray-900">Service Types</h2>
         {!showForm && (

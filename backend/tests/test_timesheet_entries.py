@@ -22,6 +22,7 @@ async def active_pay_period(db_session, test_user):
     )
 
     pay_period = PayPeriod(
+        company_id=test_user.company_id,
         period_group=test_user.pay_period_group,
         start_date=start_date,
         end_date=end_date,

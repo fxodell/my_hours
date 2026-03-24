@@ -1,4 +1,4 @@
-import type { User, Client, ServiceType, PayPeriod, Timesheet, TimeEntry, PTOEntry, TimeEntryCreate, Location, JobCode, SiteRequest, SiteRequestCreate } from '../types'
+import type { User, Company, Client, ServiceType, PayPeriod, Timesheet, BillingWeek, TimeEntry, PTOEntry, TimeEntryCreate, Location, JobCode, SiteRequest, SiteRequestCreate } from '../types'
 
 const API_BASE = '/api'
 
@@ -106,13 +106,43 @@ export async function getCurrentUser(): Promise<User> {
   return fetchApi<User>('/auth/me')
 }
 
-// Clients
-export async function getClients(): Promise<Client[]> {
-  return fetchApi<Client[]>('/clients')
+// Companies (super-admin only)
+export async function getCompanies(activeOnly = true): Promise<Company[]> {
+  return fetchApi<Company[]>(`/companies?active_only=${activeOnly}`)
 }
 
-export async function getAllClients(): Promise<Client[]> {
-  return fetchApi<Client[]>('/clients?active_only=false')
+export async function getCompany(id: string): Promise<Company> {
+  return fetchApi<Company>(`/companies/${id}`)
+}
+
+export async function createCompany(data: { name: string; slug: string; is_active?: boolean }): Promise<Company> {
+  return fetchApi<Company>('/companies', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function updateCompany(id: string, data: Partial<{ name: string; slug: string; is_active: boolean }>): Promise<Company> {
+  return fetchApi<Company>(`/companies/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function deleteCompany(id: string): Promise<void> {
+  return fetchApi<void>(`/companies/${id}`, { method: 'DELETE' })
+}
+
+// Clients
+export async function getClients(companyId?: string): Promise<Client[]> {
+  const params = companyId ? `?company_id=${companyId}` : ''
+  return fetchApi<Client[]>(`/clients${params}`)
+}
+
+export async function getAllClients(companyId?: string): Promise<Client[]> {
+  const qs = new URLSearchParams({ active_only: 'false' })
+  if (companyId) qs.set('company_id', companyId)
+  return fetchApi<Client[]>(`/clients?${qs}`)
 }
 
 export async function createClient(data: { name: string; industry?: string; is_active?: boolean }): Promise<Client> {
@@ -134,8 +164,9 @@ export async function deleteClient(id: string): Promise<void> {
 }
 
 // Service Types
-export async function getServiceTypes(): Promise<ServiceType[]> {
-  return fetchApi<ServiceType[]>('/service-types')
+export async function getServiceTypes(companyId?: string): Promise<ServiceType[]> {
+  const params = companyId ? `?company_id=${companyId}` : ''
+  return fetchApi<ServiceType[]>(`/service-types${params}`)
 }
 
 export async function createServiceType(data: { name: string; is_billable?: boolean }): Promise<ServiceType> {
@@ -165,14 +196,17 @@ export async function getPayPeriod(id: string): Promise<PayPeriod> {
   return fetchApi<PayPeriod>(`/pay-periods/${id}`)
 }
 
-export async function getPayPeriods(limit = 10): Promise<PayPeriod[]> {
-  return fetchApi<PayPeriod[]>(`/pay-periods?limit=${limit}`)
+export async function getPayPeriods(limit = 10, companyId?: string): Promise<PayPeriod[]> {
+  const qs = new URLSearchParams({ limit: String(limit) })
+  if (companyId) qs.set('company_id', companyId)
+  return fetchApi<PayPeriod[]>(`/pay-periods?${qs}`)
 }
 
-export async function getAllPayPeriods(params?: { period_group?: string; status_filter?: string; limit?: number }): Promise<PayPeriod[]> {
+export async function getAllPayPeriods(params?: { period_group?: string; status_filter?: string; limit?: number; company_id?: string }): Promise<PayPeriod[]> {
   const searchParams = new URLSearchParams()
   if (params?.period_group) searchParams.append('period_group', params.period_group)
   if (params?.status_filter) searchParams.append('status_filter', params.status_filter)
+  if (params?.company_id) searchParams.append('company_id', params.company_id)
   searchParams.append('limit', String(params?.limit || 50))
   return fetchApi<PayPeriod[]>(`/pay-periods?${searchParams.toString()}`)
 }
@@ -217,11 +251,12 @@ export async function getTimesheetForPeriod(payPeriodId: string): Promise<Timesh
   return fetchApi<Timesheet>(`/timesheets/for-period/${payPeriodId}`)
 }
 
-export async function getTimesheets(params?: { status?: string; employee_id?: string; pay_period_id?: string }): Promise<Timesheet[]> {
+export async function getTimesheets(params?: { status?: string; employee_id?: string; pay_period_id?: string; company_id?: string }): Promise<Timesheet[]> {
   const searchParams = new URLSearchParams()
   if (params?.status) searchParams.append('status_filter', params.status)
   if (params?.employee_id) searchParams.append('employee_id', params.employee_id)
   if (params?.pay_period_id) searchParams.append('pay_period_id', params.pay_period_id)
+  if (params?.company_id) searchParams.append('company_id', params.company_id)
 
   const query = searchParams.toString()
   return fetchApi<Timesheet[]>(`/timesheets${query ? `?${query}` : ''}`)
@@ -263,6 +298,35 @@ export async function rejectTimesheet(id: string, reason: string): Promise<Times
       body: JSON.stringify({ rejection_reason: reason }),
     }
   )
+}
+
+// Billing weeks
+export async function getBillingWeeks(timesheetId: string): Promise<BillingWeek[]> {
+  return fetchApi<BillingWeek[]>(`/timesheets/${timesheetId}/billing-weeks`)
+}
+
+export async function submitBillingWeek(timesheetId: string, weekId: string): Promise<BillingWeek> {
+  return fetchApi<BillingWeek>(`/timesheets/${timesheetId}/billing-weeks/${weekId}/submit`, {
+    method: 'POST',
+  })
+}
+
+export async function approveBillingWeek(timesheetId: string, weekId: string): Promise<BillingWeek> {
+  return fetchApi<BillingWeek>(`/timesheets/${timesheetId}/billing-weeks/${weekId}/approve`, {
+    method: 'POST',
+  })
+}
+
+export async function reopenBillingWeek(timesheetId: string, weekId: string): Promise<BillingWeek> {
+  return fetchApi<BillingWeek>(`/timesheets/${timesheetId}/billing-weeks/${weekId}/reopen`, {
+    method: 'POST',
+  })
+}
+
+export async function markBilledBillingWeek(timesheetId: string, weekId: string): Promise<BillingWeek> {
+  return fetchApi<BillingWeek>(`/timesheets/${timesheetId}/billing-weeks/${weekId}/mark-billed`, {
+    method: 'POST',
+  })
 }
 
 // Time Entries
@@ -316,8 +380,9 @@ export async function createPTOEntry(
 }
 
 // Employees (for managers)
-export async function getEmployees(): Promise<User[]> {
-  return fetchApi<User[]>('/employees')
+export async function getEmployees(companyId?: string): Promise<User[]> {
+  const params = companyId ? `?company_id=${companyId}` : ''
+  return fetchApi<User[]>(`/employees${params}`)
 }
 
 export async function createEmployee(data: {
@@ -403,19 +468,24 @@ export async function deleteJobCode(locationId: string, jobCodeId: string): Prom
 }
 
 // Reports
-export async function getPayrollReport(payPeriodId: string): Promise<Blob> {
-  return fetchApiBlob(`/reports/payroll?pay_period_id=${payPeriodId}&format=csv`)
+export async function getPayrollReport(payPeriodId: string, companyId?: string): Promise<Blob> {
+  const qs = new URLSearchParams({ pay_period_id: payPeriodId, format: 'csv' })
+  if (companyId) qs.set('company_id', companyId)
+  return fetchApiBlob(`/reports/payroll?${qs}`)
 }
 
-export async function getBillingReport(startDate?: string, endDate?: string): Promise<Blob> {
+export async function getBillingReport(startDate?: string, endDate?: string, companyId?: string): Promise<Blob> {
   const qs = new URLSearchParams({ format: 'csv' })
   if (startDate) qs.set('start_date', startDate)
   if (endDate) qs.set('end_date', endDate)
+  if (companyId) qs.set('company_id', companyId)
   return fetchApiBlob(`/reports/billing?${qs}`)
 }
 
-export async function getEngageExport(payPeriodId: string): Promise<Blob> {
-  return fetchApiBlob(`/reports/engage-export?pay_period_id=${payPeriodId}`)
+export async function getEngageExport(payPeriodId: string, companyId?: string): Promise<Blob> {
+  const qs = new URLSearchParams({ pay_period_id: payPeriodId })
+  if (companyId) qs.set('company_id', companyId)
+  return fetchApiBlob(`/reports/engage-export?${qs}`)
 }
 
 export async function getEmployeeDetailReport(params: {
@@ -426,6 +496,7 @@ export async function getEmployeeDetailReport(params: {
   payPeriodStatus?: string
   includePto?: boolean
   format?: string
+  companyId?: string
 }): Promise<Blob> {
   const fmt = params.format || 'csv'
   const qs = new URLSearchParams({
@@ -439,6 +510,7 @@ export async function getEmployeeDetailReport(params: {
   if (params.payPeriodStatus && params.payPeriodStatus !== 'all') {
     qs.set('pay_period_status', params.payPeriodStatus)
   }
+  if (params.companyId) qs.set('company_id', params.companyId)
   return fetchApiBlob(`/reports/employee-detail?${qs}`)
 }
 
@@ -468,6 +540,7 @@ export async function getBiweeklyPayrollReport(params: {
   periodGroup: string
   anchorStartDate: string
   format?: string
+  companyId?: string
 }): Promise<Blob> {
   const fmt = params.format || 'csv'
   const qs = new URLSearchParams({
@@ -475,6 +548,7 @@ export async function getBiweeklyPayrollReport(params: {
     anchor_start_date: params.anchorStartDate,
     format: fmt,
   })
+  if (params.companyId) qs.set('company_id', params.companyId)
   return fetchApiBlob(`/reports/payroll-biweekly?${qs}`)
 }
 
@@ -557,6 +631,123 @@ export async function requestPasswordReset(email: string): Promise<{ message: st
     throw new ApiError(response.status, error.detail)
   }
   return response.json()
+}
+
+// === Report JSON Preview APIs ===
+import type {
+  PayrollReport,
+  BillingReport,
+  BiweeklyReport,
+  DetailReport,
+  HoursByEmployeeReport,
+  HoursByJobCodeReport,
+} from '../types/reports'
+
+export async function previewMyTimeDetail(params: {
+  startDate: string
+  endDate: string
+  timesheetStatus?: string
+  payPeriodStatus?: string
+  includePto?: boolean
+}): Promise<DetailReport> {
+  const qs = new URLSearchParams({
+    start_date: params.startDate,
+    end_date: params.endDate,
+    format: 'json',
+    include_pto: String(params.includePto ?? true),
+  })
+  if (params.timesheetStatus) qs.set('timesheet_status', params.timesheetStatus)
+  if (params.payPeriodStatus && params.payPeriodStatus !== 'all') qs.set('pay_period_status', params.payPeriodStatus)
+  return fetchApi<DetailReport>(`/reports/my-time-detail?${qs}`)
+}
+
+export async function previewEmployeeDetail(params: {
+  employeeIds: string[]
+  startDate: string
+  endDate: string
+  timesheetStatus?: string
+  payPeriodStatus?: string
+  includePto?: boolean
+  companyId?: string
+}): Promise<DetailReport> {
+  const qs = new URLSearchParams({
+    employee_ids: params.employeeIds.join(','),
+    start_date: params.startDate,
+    end_date: params.endDate,
+    format: 'json',
+    include_pto: String(params.includePto ?? true),
+  })
+  if (params.timesheetStatus) qs.set('timesheet_status', params.timesheetStatus)
+  if (params.payPeriodStatus && params.payPeriodStatus !== 'all') qs.set('pay_period_status', params.payPeriodStatus)
+  if (params.companyId) qs.set('company_id', params.companyId)
+  return fetchApi<DetailReport>(`/reports/employee-detail?${qs}`)
+}
+
+export async function previewPayroll(payPeriodId: string, companyId?: string): Promise<PayrollReport> {
+  const qs = new URLSearchParams({ pay_period_id: payPeriodId, format: 'json' })
+  if (companyId) qs.set('company_id', companyId)
+  return fetchApi<PayrollReport>(`/reports/payroll?${qs}`)
+}
+
+export async function previewBilling(startDate?: string, endDate?: string, companyId?: string): Promise<BillingReport> {
+  const qs = new URLSearchParams({ format: 'json' })
+  if (startDate) qs.set('start_date', startDate)
+  if (endDate) qs.set('end_date', endDate)
+  if (companyId) qs.set('company_id', companyId)
+  return fetchApi<BillingReport>(`/reports/billing?${qs}`)
+}
+
+export async function previewBiweekly(params: {
+  periodGroup: string
+  anchorStartDate: string
+  companyId?: string
+}): Promise<BiweeklyReport> {
+  const qs = new URLSearchParams({
+    period_group: params.periodGroup,
+    anchor_start_date: params.anchorStartDate,
+    format: 'json',
+  })
+  if (params.companyId) qs.set('company_id', params.companyId)
+  return fetchApi<BiweeklyReport>(`/reports/payroll-biweekly?${qs}`)
+}
+
+export async function getHoursByEmployeeReport(startDate?: string, endDate?: string, companyId?: string, fmt = 'csv'): Promise<Blob> {
+  const qs = new URLSearchParams({ format: fmt })
+  if (startDate) qs.set('start_date', startDate)
+  if (endDate) qs.set('end_date', endDate)
+  if (companyId) qs.set('company_id', companyId)
+  return fetchApiBlob(`/reports/hours-by-employee?${qs}`)
+}
+
+export async function getHoursByJobCodeReport(params: {
+  startDate?: string; endDate?: string; clientId?: string; companyId?: string; format?: string
+}): Promise<Blob> {
+  const fmt = params.format || 'csv'
+  const qs = new URLSearchParams({ format: fmt })
+  if (params.startDate) qs.set('start_date', params.startDate)
+  if (params.endDate) qs.set('end_date', params.endDate)
+  if (params.clientId) qs.set('client_id', params.clientId)
+  if (params.companyId) qs.set('company_id', params.companyId)
+  return fetchApiBlob(`/reports/hours-by-job-code?${qs}`)
+}
+
+export async function previewHoursByEmployee(startDate?: string, endDate?: string, companyId?: string): Promise<HoursByEmployeeReport> {
+  const qs = new URLSearchParams({ format: 'json' })
+  if (startDate) qs.set('start_date', startDate)
+  if (endDate) qs.set('end_date', endDate)
+  if (companyId) qs.set('company_id', companyId)
+  return fetchApi<HoursByEmployeeReport>(`/reports/hours-by-employee?${qs}`)
+}
+
+export async function previewHoursByJobCode(params: {
+  startDate?: string; endDate?: string; clientId?: string; companyId?: string
+}): Promise<HoursByJobCodeReport> {
+  const qs = new URLSearchParams({ format: 'json' })
+  if (params.startDate) qs.set('start_date', params.startDate)
+  if (params.endDate) qs.set('end_date', params.endDate)
+  if (params.clientId) qs.set('client_id', params.clientId)
+  if (params.companyId) qs.set('company_id', params.companyId)
+  return fetchApi<HoursByJobCodeReport>(`/reports/hours-by-job-code?${qs}`)
 }
 
 // Reset password with token

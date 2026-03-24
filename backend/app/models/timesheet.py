@@ -8,6 +8,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base, UUIDMixin, TimestampMixin
 
 if TYPE_CHECKING:
+    from app.models.billing_week import BillingWeek
+    from app.models.company import Company
     from app.models.employee import Employee
     from app.models.pay_period import PayPeriod
     from app.models.time_entry import TimeEntry
@@ -18,6 +20,13 @@ class Timesheet(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "timesheets"
     __table_args__ = (
         UniqueConstraint("employee_id", "pay_period_id", name="uq_timesheet_employee_period"),
+    )
+
+    company_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("companies.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
 
     employee_id: Mapped[uuid.UUID] = mapped_column(
@@ -59,6 +68,11 @@ class Timesheet(Base, UUIDMixin, TimestampMixin):
     pto_entries: Mapped[list["PTOEntry"]] = relationship(
         back_populates="timesheet",
         cascade="all, delete-orphan",
+    )
+    billing_weeks: Mapped[list["BillingWeek"]] = relationship(
+        back_populates="timesheet",
+        cascade="all, delete-orphan",
+        order_by="BillingWeek.week_start_date",
     )
 
     def __repr__(self) -> str:

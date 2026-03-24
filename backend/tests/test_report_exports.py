@@ -6,6 +6,7 @@ from datetime import date
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.company import Company
 from app.models.pay_period import PayPeriod
 from app.models.timesheet import Timesheet
 from app.models.time_entry import TimeEntry
@@ -23,7 +24,12 @@ def _ctx():
 
 @pytest_asyncio.fixture(autouse=True)
 async def seed(db_session: AsyncSession, _ctx: dict):
+    company = Company(name="Export Co", slug="export-co", is_active=True)
+    db_session.add(company)
+    await db_session.flush()
+
     pp = PayPeriod(
+        company_id=company.id,
         period_group="A", start_date=date(2026, 5, 3),
         end_date=date(2026, 5, 9), status="open",
     )
@@ -31,12 +37,14 @@ async def seed(db_session: AsyncSession, _ctx: dict):
     await db_session.flush()
 
     mgr = Employee(
+        company_id=company.id,
         email="export-mgr@test.com", password_hash=get_password_hash("pass"),
         first_name="Export", last_name="Manager",
         hire_date=date(2024, 1, 1), pay_period_group="A",
         is_manager=True, is_active=True,
     )
     emp = Employee(
+        company_id=company.id,
         email="export-emp@test.com", password_hash=get_password_hash("pass"),
         first_name="Export", last_name="Employee",
         hire_date=date(2024, 1, 1), pay_period_group="A", is_active=True,
@@ -44,12 +52,12 @@ async def seed(db_session: AsyncSession, _ctx: dict):
     db_session.add_all([mgr, emp])
     await db_session.flush()
 
-    cl = Client(name="Export Client", industry="O&G", is_active=True)
-    st = ServiceType(name="Export Service", is_billable=True, is_active=True)
+    cl = Client(company_id=company.id, name="Export Client", industry="O&G", is_active=True)
+    st = ServiceType(company_id=company.id, name="Export Service", is_billable=True, is_active=True)
     db_session.add_all([cl, st])
     await db_session.flush()
 
-    ts = Timesheet(employee_id=emp.id, pay_period_id=pp.id, status="approved")
+    ts = Timesheet(company_id=company.id, employee_id=emp.id, pay_period_id=pp.id, status="approved")
     db_session.add(ts)
     await db_session.flush()
 

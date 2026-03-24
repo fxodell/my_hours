@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import * as api from '../services/api'
 import { useAuth } from '../contexts/AuthContext'
+import { useCompany } from '../contexts/CompanyContext'
+import CompanySelector from '../components/CompanySelector'
 import type { Client } from '../types'
 
 interface ClientFormData {
@@ -12,6 +14,7 @@ interface ClientFormData {
 
 export default function Clients() {
   const { user } = useAuth()
+  const { companyParam } = useCompany()
   const queryClient = useQueryClient()
   const [showForm, setShowForm] = useState(false)
   const [editingClient, setEditingClient] = useState<Client | null>(null)
@@ -24,8 +27,8 @@ export default function Clients() {
   const [error, setError] = useState('')
 
   const { data: clients, isLoading } = useQuery({
-    queryKey: ['clients', 'all'],
-    queryFn: api.getAllClients,
+    queryKey: ['clients', 'all', companyParam],
+    queryFn: () => api.getAllClients(companyParam),
   })
 
   const createMutation = useMutation({
@@ -108,6 +111,7 @@ export default function Clients() {
 
   return (
     <div className="space-y-6">
+      <CompanySelector />
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-bold text-gray-900">Client Management</h2>
         {!showForm && (

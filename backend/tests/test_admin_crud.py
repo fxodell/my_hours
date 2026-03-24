@@ -6,6 +6,7 @@ from datetime import date
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.company import Company
 from app.models.employee import Employee
 from app.models.client import Client
 from app.models.location import Location
@@ -19,13 +20,19 @@ def _ctx():
 
 @pytest_asyncio.fixture(autouse=True)
 async def seed(db_session: AsyncSession, _ctx: dict):
+    company = Company(name="CRUD Co", slug="crud-co", is_active=True)
+    db_session.add(company)
+    await db_session.flush()
+
     admin = Employee(
+        company_id=company.id,
         email="crud-admin@test.com", password_hash=get_password_hash("pass"),
         first_name="Admin", last_name="User",
         hire_date=date(2024, 1, 1), pay_period_group="A",
         is_admin=True, is_active=True,
     )
     emp = Employee(
+        company_id=company.id,
         email="crud-emp@test.com", password_hash=get_password_hash("pass"),
         first_name="Regular", last_name="Employee",
         hire_date=date(2024, 1, 1), pay_period_group="A", is_active=True,
@@ -33,11 +40,11 @@ async def seed(db_session: AsyncSession, _ctx: dict):
     db_session.add_all([admin, emp])
     await db_session.flush()
 
-    client_obj = Client(name="Test Client", industry="O&G", is_active=True)
+    client_obj = Client(company_id=company.id, name="Test Client", industry="O&G", is_active=True)
     db_session.add(client_obj)
     await db_session.flush()
 
-    loc = Location(client_id=client_obj.id, site_name="Test Site", region="TX", is_active=True)
+    loc = Location(company_id=company.id, client_id=client_obj.id, site_name="Test Site", region="TX", is_active=True)
     db_session.add(loc)
     await db_session.commit()
 
@@ -266,7 +273,7 @@ async def test_generate_pay_periods(client: AsyncClient, _ctx: dict):
     """Admin can generate weekly pay periods."""
     resp = await client.post(
         "/api/pay-periods/generate",
-        params={"start_date": "2026-05-03", "weeks": 2, "period_group": "A"},
+        params={"start_date": "2026-05-04", "weeks": 2, "period_group": "A"},
         headers=_ctx["admin_headers"],
     )
     assert resp.status_code == 200
@@ -274,11 +281,11 @@ async def test_generate_pay_periods(client: AsyncClient, _ctx: dict):
 
 
 @pytest.mark.asyncio
-async def test_generate_requires_sunday(client: AsyncClient, _ctx: dict):
-    """Start date must be a Sunday."""
+async def test_generate_requires_monday(client: AsyncClient, _ctx: dict):
+    """Start date must be a Monday."""
     resp = await client.post(
         "/api/pay-periods/generate",
-        params={"start_date": "2026-05-04", "weeks": 1, "period_group": "A"},
+        params={"start_date": "2026-05-03", "weeks": 1, "period_group": "A"},
         headers=_ctx["admin_headers"],
     )
     assert resp.status_code == 400
@@ -288,7 +295,7 @@ async def test_generate_requires_sunday(client: AsyncClient, _ctx: dict):
 async def test_generate_invalid_group(client: AsyncClient, _ctx: dict):
     resp = await client.post(
         "/api/pay-periods/generate",
-        params={"start_date": "2026-05-03", "weeks": 1, "period_group": "X"},
+        params={"start_date": "2026-05-04", "weeks": 1, "period_group": "X"},
         headers=_ctx["admin_headers"],
     )
     assert resp.status_code == 400
@@ -300,7 +307,7 @@ async def test_close_pay_period(client: AsyncClient, _ctx: dict):
     # Generate a period first
     resp = await client.post(
         "/api/pay-periods/generate",
-        params={"start_date": "2026-06-28", "weeks": 1, "period_group": "B"},
+        params={"start_date": "2026-06-29", "weeks": 1, "period_group": "B"},
         headers=_ctx["admin_headers"],
     )
     pp_id = resp.json()[0]["id"]

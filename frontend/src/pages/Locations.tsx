@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import * as api from '../services/api'
 import { useAuth } from '../contexts/AuthContext'
+import CompanySelector from '../components/CompanySelector'
 import type { Client, Location, JobCode } from '../types'
 
 interface LocationFormData {
@@ -33,10 +34,11 @@ export default function Locations() {
     description: '',
   })
   const [error, setError] = useState('')
+  const [confirmDeleteLocation, setConfirmDeleteLocation] = useState<string | null>(null)
 
   const { data: clients } = useQuery({
     queryKey: ['clients', 'all'],
-    queryFn: api.getAllClients,
+    queryFn: () => api.getAllClients(),
   })
 
   const { data: locations, isLoading } = useQuery({
@@ -152,6 +154,7 @@ export default function Locations() {
 
   return (
     <div className="space-y-6">
+      <CompanySelector />
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-bold text-gray-900">Locations</h2>
         {selectedClientId && !showForm && (
@@ -306,13 +309,9 @@ export default function Locations() {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                         </svg>
                       </button>
-                      {loc.is_active && (
+                      {loc.is_active && confirmDeleteLocation !== loc.id && (
                         <button
-                          onClick={() => {
-                            if (confirm(`Deactivate location "${loc.site_name}"?`)) {
-                              deleteLocationMutation.mutate(loc.id)
-                            }
-                          }}
+                          onClick={() => setConfirmDeleteLocation(loc.id)}
                           className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg"
                           title="Deactivate"
                         >
@@ -323,6 +322,23 @@ export default function Locations() {
                       )}
                     </div>
                   </div>
+                  {confirmDeleteLocation === loc.id && (
+                    <div className="flex items-center gap-2 px-4 pb-3 text-sm">
+                      <span className="text-red-600">Deactivate "{loc.site_name}"?</span>
+                      <button
+                        onClick={() => { deleteLocationMutation.mutate(loc.id); setConfirmDeleteLocation(null) }}
+                        className="text-red-700 font-semibold hover:text-red-900"
+                      >
+                        Confirm
+                      </button>
+                      <button
+                        onClick={() => setConfirmDeleteLocation(null)}
+                        className="text-gray-500 hover:text-gray-700"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Expanded Job Codes */}
@@ -372,6 +388,7 @@ function JobCodeSection({
   error: string
   onDeleteJobCode: (jobCodeId: string) => void
 }) {
+  const [confirmDeleteJobCode, setConfirmDeleteJobCode] = useState<string | null>(null)
   const { data: jobCodes, isLoading } = useQuery({
     queryKey: ['jobCodes', locationId],
     queryFn: () => api.getJobCodes(locationId),
@@ -451,18 +468,20 @@ function JobCodeSection({
                   <span className="text-gray-600">{jc.description}</span>
                 )}
               </div>
-              {jc.is_active ? (
+              {jc.is_active && confirmDeleteJobCode !== jc.id ? (
                 <button
-                  onClick={() => {
-                    if (confirm(`Deactivate job code "${jc.code}"?`)) {
-                      onDeleteJobCode(jc.id)
-                    }
-                  }}
+                  onClick={() => setConfirmDeleteJobCode(jc.id)}
                   className="text-xs text-gray-400 hover:text-red-600"
                   title="Deactivate"
                 >
                   Deactivate
                 </button>
+              ) : jc.is_active && confirmDeleteJobCode === jc.id ? (
+                <span className="inline-flex items-center gap-2 text-xs">
+                  <span className="text-red-600">Deactivate?</span>
+                  <button onClick={() => { onDeleteJobCode(jc.id); setConfirmDeleteJobCode(null) }} className="text-red-700 font-semibold hover:text-red-900">Confirm</button>
+                  <button onClick={() => setConfirmDeleteJobCode(null)} className="text-gray-500 hover:text-gray-700">Cancel</button>
+                </span>
               ) : (
                 <span className="text-xs text-gray-400">Inactive</span>
               )}

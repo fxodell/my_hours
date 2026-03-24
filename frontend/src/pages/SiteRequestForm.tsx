@@ -11,7 +11,7 @@ export default function SiteRequestForm() {
 
   const { data: clients } = useQuery({
     queryKey: ['clients'],
-    queryFn: api.getClients,
+    queryFn: () => api.getClients(),
   })
 
   const mutation = useMutation({

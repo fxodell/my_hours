@@ -16,6 +16,7 @@ class EmployeeBase(BaseSchema):
     hourly_rate: Optional[Decimal] = None
     is_manager: bool = False
     is_admin: bool = False
+    is_super_admin: bool = False
     is_active: bool = True
     engage_employee_id: Optional[str] = None
     quickbooks_employee_id: Optional[str] = None
@@ -23,6 +24,7 @@ class EmployeeBase(BaseSchema):
 
 class EmployeeCreate(EmployeeBase):
     password: str
+    company_id: Optional[UUID] = None  # If omitted, defaults to current user's company
 
 
 class EmployeeUpdate(BaseModel):
@@ -34,6 +36,7 @@ class EmployeeUpdate(BaseModel):
     hourly_rate: Optional[Decimal] = None
     is_manager: Optional[bool] = None
     is_admin: Optional[bool] = None
+    is_super_admin: Optional[bool] = None
     is_active: Optional[bool] = None
     engage_employee_id: Optional[str] = None
     quickbooks_employee_id: Optional[str] = None
@@ -51,10 +54,12 @@ class EmployeeResponse(TimestampSchema):
     hourly_rate: Optional[Decimal] = None
     is_manager: bool
     is_admin: bool
+    is_super_admin: bool
     is_active: bool
     engage_employee_id: Optional[str] = None
     quickbooks_employee_id: Optional[str] = None
     full_name: str
+    company_id: UUID
 
 
 class EmployeeSummaryResponse(TimestampSchema):
@@ -67,8 +72,10 @@ class EmployeeSummaryResponse(TimestampSchema):
     pay_period_group: str
     is_manager: bool
     is_admin: bool
+    is_super_admin: bool
     is_active: bool
     full_name: str
+    company_id: UUID
 
 
 class EmployeeLogin(BaseModel):

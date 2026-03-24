@@ -104,8 +104,9 @@ def main():
                     location = existing
                     locations_by_key[location_key] = location
                 else:
-                    # Create new location
+                    # Create new location (inherit company from client)
                     location = Location(
+                        company_id=client.company_id,
                         client_id=client.id,
                         region=region,
                         site_name=site_name,
@@ -133,6 +134,7 @@ def main():
 
                 if not existing_jc:
                     jc = JobCode(
+                        company_id=location.company_id,
                         location_id=location.id,
                         code=job_code,
                         description=site_name,
