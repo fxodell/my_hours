@@ -48,17 +48,17 @@ def to_decimal(val: str | None) -> Decimal | None:
         return None
 
 
-def find_location(session, client_id, site_name: str):
-    key = site_name.strip().lower()
+def build_location_cache(session, client_id) -> dict[str, "Location"]:
+    """Load all locations for a client into a dict keyed by lowercase site_name."""
     rows = session.execute(
         select(Location)
         .where(Location.client_id == client_id)
         .where(Location.is_active.is_(True)),
     ).scalars().all()
+    cache = {}
     for loc in rows:
-        if loc.site_name.strip().lower() == key:
-            return loc
-    return None
+        cache[loc.site_name.strip().lower()] = loc
+    return cache
 
 
 def main() -> None:
@@ -87,6 +87,9 @@ def main() -> None:
             print(f"Client '{args.client_name}' not found")
             sys.exit(1)
 
+        loc_cache = build_location_cache(session, client.id)
+        print(f"Loaded {len(loc_cache)} existing locations into cache")
+
         with args.csv_path.open(newline="", encoding="utf-8") as f:
             for row in csv.DictReader(f):
                 site_name = (row.get("site_name") or "").strip()
@@ -105,7 +108,7 @@ def main() -> None:
                     skipped += 1
                     continue
 
-                loc = find_location(session, client.id, site_name)
+                loc = loc_cache.get(site_name.strip().lower())
                 if not loc and api_number:
                     loc = session.execute(
                         select(Location)
@@ -130,6 +133,7 @@ def main() -> None:
                     )
                     session.add(loc)
                     session.flush()
+                    loc_cache[site_name.strip().lower()] = loc
                     created_loc += 1
                 else:
                     if not args.dry_run:
