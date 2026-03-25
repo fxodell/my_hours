@@ -35,6 +35,15 @@ export default function SiteRequests() {
     mutationFn: api.approveSiteRequest,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['siteRequests'] })
+      queryClient.invalidateQueries({ queryKey: ['locations'] })
+      queryClient.invalidateQueries({ queryKey: ['jobCodes'] })
+    },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: api.deleteSiteRequest,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['siteRequests'] })
     },
   })
 
@@ -51,9 +60,9 @@ export default function SiteRequests() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold">Site Requests</h2>
+        <h2 className="text-xl font-semibold">Location Requests</h2>
         <Link to="/site-requests/new" className="btn btn-primary text-sm">
-          Request New Site
+          Request New Location
         </Link>
       </div>
 
@@ -80,9 +89,9 @@ export default function SiteRequests() {
         </div>
       ) : !requests?.length ? (
         <div className="text-center py-8 text-gray-500">
-          <p>No site requests found.</p>
+          <p>No location requests found.</p>
           <Link to="/site-requests/new" className="text-primary-600 mt-2 inline-block">
-            Submit your first request
+            Submit your first location request
           </Link>
         </div>
       ) : (
@@ -151,6 +160,23 @@ export default function SiteRequests() {
                   </button>
                 </div>
               )}
+
+              {/* Manager delete for any status */}
+              {isManager && (
+                <div className="pt-1">
+                  <button
+                    onClick={() => {
+                      if (window.confirm('Delete this location request? This cannot be undone.')) {
+                        deleteMutation.mutate(req.id)
+                      }
+                    }}
+                    disabled={deleteMutation.isPending}
+                    className="text-xs text-gray-400 hover:text-red-600"
+                  >
+                    {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
+                  </button>
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -161,7 +187,7 @@ export default function SiteRequests() {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl p-6 w-full max-w-md">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">
-              Reject Site Request
+              Reject Location Request
             </h3>
             <div className="mb-4">
               <label className="label">Reason for rejection</label>

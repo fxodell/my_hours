@@ -19,6 +19,7 @@ import PayPeriodsPage from './pages/PayPeriods'
 import Companies from './pages/Companies'
 import SiteRequests from './pages/SiteRequests'
 import SiteRequestForm from './pages/SiteRequestForm'
+import LocationLookup from './pages/LocationLookup'
 import Profile from './pages/Profile'
 import ForgotPassword from './pages/ForgotPassword'
 import ResetPassword from './pages/ResetPassword'
@@ -176,6 +177,7 @@ export default function App() {
         />
         <Route path="site-requests" element={<SiteRequests />} />
         <Route path="site-requests/new" element={<SiteRequestForm />} />
+        <Route path="location-lookup" element={<LocationLookup />} />
         <Route path="profile" element={<Profile />} />
       </Route>
     </Routes>

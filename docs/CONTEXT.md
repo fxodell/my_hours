@@ -9,7 +9,7 @@ Current implementation includes:
 - Employee time and PTO entry by pay period
 - Timesheet list ordered by pay period (newest first), then by employee name (last name, first name) for stable, scannable manager view
 - Timesheet workflow: `draft -> submitted -> approved/rejected`, with manager/admin reopen
-- Weekly billing workflow inside each bi-weekly timesheet: two Monday-Sunday billing weeks (`open -> submitted -> approved -> billed`, with manager reopen)
+- Weekly billing workflow inside each bi-weekly timesheet: two Monday-Sunday billing weeks auto-created per timesheet (`open -> submitted -> approved -> billed`, with manager reopen at any stage). Entries in approved/billed weeks are locked from employee add/edit/delete (returns 403).
 - Role-based access controls for employee, manager, admin, and super-admin use cases
 - Manager reporting exports (payroll, biweekly payroll rollup, employee detail with draft support, billing report by client, location, site code, employee, service type; hours by employee; hours by job code)
 - Employee self-service export (`/api/reports/my-time-detail`) for downloading own time entries (all statuses)
@@ -33,9 +33,10 @@ Current implementation includes:
 - **State/data:** TanStack Query + React Context + React Hook Form
 - **Styling:** Tailwind CSS
 - **PWA:** `vite-plugin-pwa` with runtime caching for API/font assets
-- **Route guards:** `ProtectedRoute`, `ManagerRoute`, `AdminRoute` — all three check `isLoading` before redirecting to prevent premature navigation while auth state resolves
-- **Reusable components:** `SearchableSelect` (dropdown with search/filter, keyboard navigation), `Layout` (header + bottom nav for mobile)
+- **Route guards:** `ProtectedRoute`, `ManagerRoute`, `AdminRoute`, `SuperAdminRoute` — all check `isLoading` before redirecting to prevent premature navigation while auth state resolves
+- **Reusable components:** `SearchableSelect` (dropdown with search/filter, keyboard navigation), `Layout` (header + two-row bottom nav for mobile), `CompanySelector` (super-admin company switcher dropdown)
 - **API layer:** `fetchApi` wrapper in `services/api.ts` handles JWT tokens, auto-redirects to `/login` on 401, returns typed responses; `fetchApiBlob` for report file downloads
+- **Company context:** `CompanyContext` provides `useCompany()` hook for super-admin company switching; `companyParam` is appended to API calls when a super-admin has selected a different company
 
 ### Database Engine Pattern
 
@@ -52,9 +53,10 @@ The backend uses two SQLAlchemy engines from `backend/app/core/database.py`:
 
 - `backend/app/main.py` - FastAPI app configuration and router registration
 - `backend/app/api/` - Route handlers (`auth`, `timesheets`, `reports`, `site_requests`, admin CRUD)
-- `backend/app/api/deps.py` - Auth and role dependency aliases (`CurrentUser`, `CurrentManager`, `CurrentAdmin`, `CurrentSuperAdmin`, `TenantId`)
+- `backend/app/api/deps.py` - Auth and role dependency aliases (`CurrentUser`, `CurrentManager`, `CurrentAdmin`, `CurrentSuperAdmin`), `resolve_company_id()` for multi-tenant scope
 - `backend/app/api/companies.py` - Company CRUD (super-admin only)
 - `backend/app/models/company.py` - Company model (name, slug, is_active)
+- `backend/app/models/billing_week.py` - BillingWeek model (weekly billing status within timesheets)
 - `backend/app/models/` - SQLAlchemy models + mixins
 - `backend/app/schemas/` - Pydantic schemas
 - `backend/scripts/seed_data.py` - Seed reference data + initial admin
@@ -64,6 +66,10 @@ The backend uses two SQLAlchemy engines from `backend/app/core/database.py`:
 - `frontend/src/pages/` - User, manager, and admin page components
 - `frontend/src/pages/SiteRequests.tsx` - Site request list with manager approve/reject actions
 - `frontend/src/pages/SiteRequestForm.tsx` - Standalone new site request form
+- `frontend/src/pages/Companies.tsx` - Company management (super-admin only)
+- `frontend/src/contexts/CompanyContext.tsx` - Company selection context for super-admin cross-company access
+- `frontend/src/components/CompanySelector.tsx` - Company switcher dropdown (renders only for super-admins)
+- `frontend/src/types/reports.ts` - Typed JSON response interfaces for report previews
 - `frontend/src/services/api.ts` - Frontend API wrapper and auth token handling
 
 ## Core Domain Workflow
@@ -78,21 +84,23 @@ Time and PTO entry editability:
 - `draft` and `rejected` timesheets are editable (add/update/delete entries)
 - `submitted` and `approved` timesheets are read-only in the employee UI; edit/add/delete controls are hidden and a status-specific banner is shown
 - Both time entry and PTO entry dates can be entered for any day within the active pay period bounds (past dates included), while dates outside the pay period are rejected by backend validation
-- Entries in a billing week marked `approved` or `billed` are locked from employee add/edit/delete operations for both time and PTO
+- Entries in a billing week marked `approved` or `billed` are locked from employee add/edit/delete operations for both time and PTO (returns 403 via `_is_date_locked_for_billing_week()` helper)
+- Billing weeks are auto-created when a timesheet is first retrieved or created (`_ensure_billing_weeks()`), splitting the bi-weekly pay period into two Monday-Sunday weeks
 - Adding a time or PTO entry to a `rejected` timesheet auto-resets it to `draft`
 - Frontend entry forms (`TimeEntry.tsx`, `PTOEntry.tsx`) accept a `?timesheet=<id>` query parameter to target a specific timesheet; `TimesheetDetail.tsx` passes this when linking to "Add Time" / "Add PTO"
 - Shared editability helpers in `frontend/src/timesheetStatus.ts`: `isTimesheetEditable()`, `isTimesheetReadOnly()`, `getEntryDateMax()`
 - The `bonus_eligible` time-entry field has been removed from UI and API payloads; database schema no longer stores per-entry bonus eligibility
+- **Time entry create validation:** `description` is required (non-empty after trim) on create; `job_code_id` is required on create when the selected location has one or more active job codes (backend returns 400, frontend validates before submit). These rules apply to create only, not edit.
 
-Site request workflow:
-1. Employee needs a location that doesn't exist yet — submits a **site request** (not a location directly)
+Site request workflow (API/table `site_requests`; user-facing **location request** in the app):
+1. Employee needs a location that doesn't exist yet — submits a **location request** (not a location row directly)
 2. Requests are stored in the `site_requests` table with status `pending`
 3. Submission paths:
    - **Inline from Time Entry:** On the Add Time page, after selecting a client, if the needed location isn't listed the employee clicks "Can't find your site? Request a new one" and fills out an inline form (site name, region, optional AFE/job code + description, notes). The client is pre-filled from the current selection.
    - **Standalone form:** Navigate to `/site-requests/new` (linked from the Site Requests page)
 4. On submission, managers are notified by email (logged in dev mode)
 5. Managers (or admins) review pending requests at `/site-requests`, where they see all requests with status filters (pending, approved, rejected)
-6. **Approve:** Creates a new `Location` for the client (with site name and region). If AFE/job code info was provided, also creates a `JobCode` on that location. The request is updated with `status=approved`, `reviewed_by`, `reviewed_at`, `created_location_id`, and optionally `created_job_code_id`. Duplicate locations/job codes are detected and reused. The requesting employee is notified by email.
+6. **Approve:** Creates a new `Location` for the client (with site name and region). If AFE/job code info was provided, also creates a `JobCode` on that location. The request is updated with `status=approved`, `reviewed_by`, `reviewed_at`, `created_location_id`, and optionally `created_job_code_id`. Duplicate locations/job codes are detected and reused. The requesting employee is notified by email. The frontend invalidates `locations` and `jobCodes` query caches on approve so new locations appear immediately in entry form dropdowns.
 7. **Reject:** Manager provides a rejection reason. Request is set to `rejected` with `rejection_reason`. The employee is notified by email.
 8. Employees can only view their own requests; managers/admins see all requests.
 
@@ -134,14 +142,16 @@ Pay period model:
 ## Testing State
 
 - Backend tests currently run against in-memory SQLite (`backend/tests/conftest.py`)
-- Test coverage includes: auth, health, time entry CRUD (past-day, out-of-period, post-submit blocking), PTO entry CRUD (date validation, post-submit blocking), employee detail reports, biweekly payroll reports, site requests, multi-tenant isolation (cross-company access denied for employees/clients/timesheets/reports/password-reset, company CRUD permissions)
-- Engine and fixtures are function-scoped: each test gets a fresh database — all 114 tests pass together without isolation issues
+- Test coverage includes: auth, health, time entry CRUD (past-day, out-of-period, post-submit blocking), PTO entry CRUD (date validation, post-submit blocking), employee detail reports, biweekly payroll reports, site requests, billing weeks (auto-creation, entry locking), multi-tenant isolation (cross-company access denied for employees/clients/timesheets/reports/password-reset, company CRUD permissions)
+- Key test files: `test_billing_weeks.py`, `test_multi_tenant.py`, `test_timesheet_lifecycle.py`, `test_admin_crud.py`, `test_report_exports.py`, `test_site_requests.py`
+- Engine and fixtures are function-scoped: each test gets a fresh database
 
 ## Frontend Patterns and Conventions
 
-- **Entry forms** (`TimeEntry.tsx`, `TimeEntryEdit.tsx`, `PTOEntry.tsx`, `PTOEntryEdit.tsx`) use cascading selects (Client → Location → Job Code) with `useEffect` + `setValue` resets on parent change
+- **Entry forms** (`TimeEntry.tsx`, `TimeEntryEdit.tsx`, `PTOEntry.tsx`, `PTOEntryEdit.tsx`) use cascading selects (Client → Location → Job Code) with `useEffect` + `setValue` resets on parent change; time entry forms use mutually exclusive **Duration** modes — **Start & end time** (hours computed from the span) or **Hours worked** (tapped values), not both at once
+- **Locations** may store optional `site_code`, `latitude`, and `longitude`; `GET /api/locations` embeds active **job codes** per location. Employees use **Location lookup** (`/location-lookup`) to browse by client and open **Google Maps** directions from coordinates. Admins edit GPS/site code on the Locations admin page. Bulk sync from `data/ApacheSiteListGPS.csv` (including optional `job_codes` column): `python scripts/import_apache_site_gps.py` from `backend/`
 - **Pay period selector** in entry forms shows "Current" badge based on date comparison (`start_date <= today <= end_date`) and grace-period countdown for closed periods
-- **Report preview + download** — each report section on the Reports page has both a **Preview** button (fetches `format=json` via TanStack Query on demand) and a **Download** button (CSV/Excel blob). Preview renders summary stats and a scrollable table inline; the Engage export remains download-only. Typed JSON response interfaces live in `frontend/src/types/reports.ts`. Preview queries use `enabled: false` until the user clicks Preview to avoid unnecessary API calls
+- **Report preview + download** — each report section on the Reports page has both a **Preview** button (fetches `format=json` via TanStack Query on demand) and a **Download** button (CSV/Excel blob). Preview renders summary stats and a scrollable table inline; the Engage export remains download-only. Typed JSON response interfaces live in `frontend/src/types/reports.ts` (`PayrollReport`, `BillingReport`, `BiweeklyReport`, `DetailReport`, `HoursByJobCodeReport`, `HoursByEmployeeReport`). Preview queries use `enabled: false` until the user clicks Preview to avoid unnecessary API calls
 - **Profile page** auto-dismisses success messages after 5 seconds
 - **Validation approach:** Backend is the source of truth for all business rules; frontend provides UX-level validation (required fields, date ranges) but does not duplicate backend logic
 

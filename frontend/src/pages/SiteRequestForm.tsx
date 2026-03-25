@@ -23,12 +23,18 @@ export default function SiteRequestForm() {
   })
 
   const onSubmit = (data: SiteRequestCreate) => {
-    mutation.mutate(data)
+    mutation.mutate({
+      ...data,
+      region: data.region?.trim() || undefined,
+      job_code: data.job_code?.trim() || undefined,
+      job_code_description: data.job_code_description?.trim() || undefined,
+      notes: data.notes?.trim() || undefined,
+    })
   }
 
   return (
     <div className="space-y-4">
-      <h2 className="text-xl font-semibold">Request New Site</h2>
+      <h2 className="text-xl font-semibold">Request New Location</h2>
 
       {mutation.isError && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
@@ -54,9 +60,9 @@ export default function SiteRequestForm() {
         </div>
 
         <div>
-          <label className="label">Site Name *</label>
+          <label className="label">Location name *</label>
           <input
-            {...register('site_name', { required: 'Site name is required' })}
+            {...register('site_name', { required: 'Location name is required' })}
             className="input"
             placeholder="e.g. Well Pad A-14"
           />

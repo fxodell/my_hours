@@ -8,6 +8,9 @@ import type { Client, Location, JobCode } from '../types'
 interface LocationFormData {
   site_name: string
   region: string
+  site_code: string
+  latitude: string
+  longitude: string
   is_active: boolean
 }
 
@@ -27,6 +30,9 @@ export default function Locations() {
   const [formData, setFormData] = useState<LocationFormData>({
     site_name: '',
     region: '',
+    site_code: '',
+    latitude: '',
+    longitude: '',
     is_active: true,
   })
   const [jobCodeData, setJobCodeData] = useState<JobCodeFormData>({
@@ -48,13 +54,21 @@ export default function Locations() {
   })
 
   const createMutation = useMutation({
-    mutationFn: (data: LocationFormData) =>
-      api.createLocation({
+    mutationFn: (data: LocationFormData) => {
+      const lat =
+        data.latitude.trim() === '' ? undefined : Number.parseFloat(data.latitude)
+      const lng =
+        data.longitude.trim() === '' ? undefined : Number.parseFloat(data.longitude)
+      return api.createLocation({
         client_id: selectedClientId,
         site_name: data.site_name,
         region: data.region || undefined,
+        site_code: data.site_code.trim() || undefined,
+        latitude: lat !== undefined && Number.isFinite(lat) ? lat : undefined,
+        longitude: lng !== undefined && Number.isFinite(lng) ? lng : undefined,
         is_active: data.is_active,
-      }),
+      })
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['locations'] })
       resetForm()
@@ -65,8 +79,20 @@ export default function Locations() {
   })
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Partial<LocationFormData> }) =>
-      api.updateLocation(id, { ...data, region: data.region || null }),
+    mutationFn: ({ id, data }: { id: string; data: LocationFormData }) => {
+      const lat =
+        data.latitude.trim() === '' ? null : Number.parseFloat(data.latitude)
+      const lng =
+        data.longitude.trim() === '' ? null : Number.parseFloat(data.longitude)
+      return api.updateLocation(id, {
+        site_name: data.site_name,
+        region: data.region || null,
+        site_code: data.site_code.trim() || null,
+        latitude: lat !== null && Number.isFinite(lat) ? lat : null,
+        longitude: lng !== null && Number.isFinite(lng) ? lng : null,
+        is_active: data.is_active,
+      })
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['locations'] })
       resetForm()
@@ -116,7 +142,14 @@ export default function Locations() {
   const resetForm = () => {
     setShowForm(false)
     setEditingLocation(null)
-    setFormData({ site_name: '', region: '', is_active: true })
+    setFormData({
+      site_name: '',
+      region: '',
+      site_code: '',
+      latitude: '',
+      longitude: '',
+      is_active: true,
+    })
     setError('')
   }
 
@@ -125,6 +158,15 @@ export default function Locations() {
     setFormData({
       site_name: loc.site_name,
       region: loc.region || '',
+      site_code: loc.site_code || '',
+      latitude:
+        loc.latitude !== undefined && loc.latitude !== null && loc.latitude !== ''
+          ? String(loc.latitude)
+          : '',
+      longitude:
+        loc.longitude !== undefined && loc.longitude !== null && loc.longitude !== ''
+          ? String(loc.longitude)
+          : '',
       is_active: loc.is_active,
     })
     setShowForm(true)
@@ -225,6 +267,42 @@ export default function Locations() {
               />
             </div>
 
+            <div>
+              <label className="label">Site code</label>
+              <input
+                type="text"
+                value={formData.site_code}
+                onChange={(e) => setFormData({ ...formData, site_code: e.target.value })}
+                className="input font-mono text-sm"
+                placeholder="e.g. API / facility ID"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="label">Latitude</label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={formData.latitude}
+                  onChange={(e) => setFormData({ ...formData, latitude: e.target.value })}
+                  className="input font-mono text-sm"
+                  placeholder="31.80197"
+                />
+              </div>
+              <div>
+                <label className="label">Longitude</label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={formData.longitude}
+                  onChange={(e) => setFormData({ ...formData, longitude: e.target.value })}
+                  className="input font-mono text-sm"
+                  placeholder="-102.70534"
+                />
+              </div>
+            </div>
+
             {editingLocation && (
               <label className="flex items-center gap-2">
                 <input
@@ -297,6 +375,21 @@ export default function Locations() {
                       </div>
                       {loc.region && (
                         <p className="text-sm text-gray-500 ml-8">{loc.region}</p>
+                      )}
+                      {(loc.site_code || loc.latitude || loc.longitude) && (
+                        <p className="text-xs text-gray-400 ml-8 mt-0.5 space-x-2">
+                          {loc.site_code && (
+                            <span className="font-mono">Code: {loc.site_code}</span>
+                          )}
+                          {loc.latitude != null &&
+                            loc.latitude !== '' &&
+                            loc.longitude != null &&
+                            loc.longitude !== '' && (
+                              <span className="font-mono">
+                                GPS: {loc.latitude}, {loc.longitude}
+                              </span>
+                            )}
+                        </p>
                       )}
                     </div>
                     <div className="flex items-center gap-1">

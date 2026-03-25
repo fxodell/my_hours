@@ -5,6 +5,9 @@ import pytest_asyncio
 
 from sqlalchemy import delete
 from app.models.pay_period import PayPeriod
+from app.models.client import Client
+from app.models.location import Location
+from app.models.job_code import JobCode
 
 
 @pytest_asyncio.fixture
@@ -47,6 +50,7 @@ async def test_create_time_entry_for_today(client, auth_headers, active_pay_peri
             "work_date": date.today().isoformat(),
             "work_mode": "remote",
             "hours": 8,
+            "description": "Test work",
         },
     )
 
@@ -69,6 +73,7 @@ async def test_create_time_entry_for_past_day_in_pay_period(client, auth_headers
             "work_date": past_work_date,
             "work_mode": "remote",
             "hours": 7.5,
+            "description": "Past day work",
         },
     )
 
@@ -90,6 +95,7 @@ async def test_create_time_entry_outside_pay_period_fails(client, auth_headers, 
             "work_date": outside_work_date,
             "work_mode": "remote",
             "hours": 8,
+            "description": "Outside period",
         },
     )
 
@@ -110,6 +116,7 @@ async def test_time_entry_mutations_blocked_when_submitted(client, auth_headers,
             "work_date": date.today().isoformat(),
             "work_mode": "remote",
             "hours": 8,
+            "description": "Test work",
         },
     )
     assert create_response.status_code == 201
@@ -129,6 +136,7 @@ async def test_time_entry_mutations_blocked_when_submitted(client, auth_headers,
             "work_date": date.today().isoformat(),
             "work_mode": "remote",
             "hours": 4,
+            "description": "After submit",
         },
     )
     assert create_after_submit.status_code == 403
@@ -202,6 +210,7 @@ async def test_pto_mutations_blocked_when_submitted(client, auth_headers, active
             "work_date": date.today().isoformat(),
             "work_mode": "remote",
             "hours": 8,
+            "description": "Test work",
         },
     )
 
@@ -251,3 +260,141 @@ async def test_pto_mutations_blocked_when_submitted(client, auth_headers, active
         headers=auth_headers,
     )
     assert delete_after_submit.status_code == 403
+
+
+# --- Description and job code validation on create ---
+
+
+@pytest.mark.asyncio
+async def test_create_entry_without_description_fails(client, auth_headers, active_pay_period):
+    ts = await client.get("/api/timesheets/current", headers=auth_headers)
+    timesheet_id = ts.json()["id"]
+
+    response = await client.post(
+        f"/api/timesheets/{timesheet_id}/entries",
+        headers=auth_headers,
+        json={
+            "work_date": date.today().isoformat(),
+            "work_mode": "remote",
+            "hours": 8,
+        },
+    )
+    assert response.status_code == 400
+    assert "Description is required" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_create_entry_with_blank_description_fails(client, auth_headers, active_pay_period):
+    ts = await client.get("/api/timesheets/current", headers=auth_headers)
+    timesheet_id = ts.json()["id"]
+
+    response = await client.post(
+        f"/api/timesheets/{timesheet_id}/entries",
+        headers=auth_headers,
+        json={
+            "work_date": date.today().isoformat(),
+            "work_mode": "remote",
+            "hours": 8,
+            "description": "   ",
+        },
+    )
+    assert response.status_code == 400
+    assert "Description is required" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_create_entry_requires_job_code_when_location_has_codes(
+    client, auth_headers, active_pay_period, db_session, test_user
+):
+    ts = await client.get("/api/timesheets/current", headers=auth_headers)
+    timesheet_id = ts.json()["id"]
+
+    # Create client + location + job code
+    await db_session.execute(delete(Client).where(Client.name == "JC Test Client"))
+    test_client = Client(company_id=test_user.company_id, name="JC Test Client", is_active=True)
+    db_session.add(test_client)
+    await db_session.flush()
+
+    location = Location(
+        company_id=test_user.company_id, client_id=test_client.id,
+        site_name="JC Test Site", is_active=True,
+    )
+    db_session.add(location)
+    await db_session.flush()
+
+    job_code = JobCode(
+        company_id=test_user.company_id, location_id=location.id,
+        code="JC-001", description="Test code", is_active=True,
+    )
+    db_session.add(job_code)
+    await db_session.commit()
+    await db_session.refresh(location)
+    await db_session.refresh(job_code)
+
+    # Missing job_code_id → 400
+    response = await client.post(
+        f"/api/timesheets/{timesheet_id}/entries",
+        headers=auth_headers,
+        json={
+            "work_date": date.today().isoformat(),
+            "work_mode": "remote",
+            "hours": 8,
+            "description": "Some work",
+            "client_id": str(test_client.id),
+            "location_id": str(location.id),
+        },
+    )
+    assert response.status_code == 400
+    assert "Job code is required" in response.json()["detail"]
+
+    # With job_code_id → 201
+    response = await client.post(
+        f"/api/timesheets/{timesheet_id}/entries",
+        headers=auth_headers,
+        json={
+            "work_date": date.today().isoformat(),
+            "work_mode": "remote",
+            "hours": 8,
+            "description": "Some work",
+            "client_id": str(test_client.id),
+            "location_id": str(location.id),
+            "job_code_id": str(job_code.id),
+        },
+    )
+    assert response.status_code == 201
+
+
+@pytest.mark.asyncio
+async def test_create_entry_no_job_code_ok_when_location_has_no_codes(
+    client, auth_headers, active_pay_period, db_session, test_user
+):
+    ts = await client.get("/api/timesheets/current", headers=auth_headers)
+    timesheet_id = ts.json()["id"]
+
+    # Create client + location with NO job codes
+    await db_session.execute(delete(Client).where(Client.name == "No JC Client"))
+    test_client = Client(company_id=test_user.company_id, name="No JC Client", is_active=True)
+    db_session.add(test_client)
+    await db_session.flush()
+
+    location = Location(
+        company_id=test_user.company_id, client_id=test_client.id,
+        site_name="No JC Site", is_active=True,
+    )
+    db_session.add(location)
+    await db_session.commit()
+    await db_session.refresh(location)
+
+    response = await client.post(
+        f"/api/timesheets/{timesheet_id}/entries",
+        headers=auth_headers,
+        json={
+            "work_date": date.today().isoformat(),
+            "work_mode": "remote",
+            "hours": 8,
+            "description": "Work without job code",
+            "client_id": str(test_client.id),
+            "location_id": str(location.id),
+        },
+    )
+    assert response.status_code == 201

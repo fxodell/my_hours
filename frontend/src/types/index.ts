@@ -37,12 +37,22 @@ export interface ServiceType {
   is_billable: boolean
 }
 
+export interface JobCodeBrief {
+  id: string
+  code: string
+  description: string | null
+}
+
 export interface Location {
   id: string
   client_id: string
   region: string | null
   site_name: string
+  site_code?: string | null
+  latitude?: number | string | null
+  longitude?: number | string | null
   is_active: boolean
+  job_codes?: JobCodeBrief[]
 }
 
 export interface JobCode {
@@ -159,8 +169,9 @@ export interface TimeEntryCreate {
   service_type_id?: string
   work_mode: 'remote' | 'on_site'
   hours: number
-  start_time?: string
-  end_time?: string
+  /** Use `null` on PATCH to clear stored times when switching to hours-only entry */
+  start_time?: string | null
+  end_time?: string | null
   description?: string
   is_billable?: boolean
   is_overtime?: boolean

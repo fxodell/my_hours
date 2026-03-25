@@ -7,6 +7,7 @@ import * as api from '../services/api'
 import type { TimeEntryCreate, SiteRequestCreate } from '../types'
 import SearchableSelect from '../components/SearchableSelect'
 import { getEntryDateMax, isTimesheetEditable, isTimesheetReadOnly } from '../timesheetStatus'
+import { googleMapsDirectionsUrl, parseCoord } from '../utils/maps'
 
 const HOUR_OPTIONS = [
   0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8,
@@ -76,7 +77,7 @@ function SiteRequestInlineForm({
   return (
     <div className="space-y-2">
       <div>
-        <label className="text-xs font-medium text-gray-700">Site Name *</label>
+        <label className="text-xs font-medium text-gray-700">Location name *</label>
         <input
           type="text"
           value={siteName}
@@ -137,6 +138,8 @@ function SiteRequestInlineForm({
   )
 }
 
+type DurationInputMode = 'by_times' | 'by_hours'
+
 export default function TimeEntry() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -144,6 +147,7 @@ export default function TimeEntry() {
   const timesheetParam = searchParams.get('timesheet')
   const [error, setError] = useState('')
   const [selectedPeriodId, setSelectedPeriodId] = useState<string | null>(null)
+  const [durationInputMode, setDurationInputMode] = useState<DurationInputMode>('by_hours')
 
   // Fetch recent pay periods when no specific timesheet is targeted
   const { data: recentPeriods } = useQuery({
@@ -222,30 +226,36 @@ export default function TimeEntry() {
   const workDate = watch('work_date')
   const startTime = watch('start_time')
   const endTime = watch('end_time')
+  const hoursWatched = watch('hours')
   const selectedClientId = watch('client_id')
   const selectedLocationId = watch('location_id')
 
-  // Auto-calculate hours from start/end times
+  // Auto-calculate hours from start/end only when using time range (not when entering hours manually)
   useEffect(() => {
+    if (durationInputMode !== 'by_times') return
     const calculated = calcHoursFromTimes(startTime, endTime)
     if (calculated !== null) {
       setValue('hours', calculated)
     }
-  }, [startTime, endTime, setValue])
+  }, [startTime, endTime, setValue, durationInputMode])
 
-  // Fetch locations when client changes
+  // Fetch locations when client changes (staleTime: 0 so approved location requests appear immediately)
   const { data: locations } = useQuery({
     queryKey: ['locations', selectedClientId],
     queryFn: () => api.getLocations(selectedClientId),
     enabled: !!selectedClientId,
+    staleTime: 0,
   })
 
-  // Fetch job codes when location changes
+  // Fetch job codes when location changes (staleTime: 0 so approved job codes appear immediately)
   const { data: jobCodes } = useQuery({
     queryKey: ['jobCodes', selectedLocationId],
     queryFn: () => api.getJobCodes(selectedLocationId),
     enabled: !!selectedLocationId,
+    staleTime: 0,
   })
+
+  const selectedLocationDetail = locations?.find((l) => l.id === selectedLocationId)
 
   // Reset location when client changes
   useEffect(() => {
@@ -275,6 +285,26 @@ export default function TimeEntry() {
   const onSubmit = (data: FormData) => {
     if (!timesheet) return
 
+    if (durationInputMode === 'by_times') {
+      const calc = calcHoursFromTimes(data.start_time, data.end_time)
+      if (!data.start_time?.trim() || !data.end_time?.trim() || calc === null) {
+        setError('Enter a valid start and end time (end must be after start).')
+        return
+      }
+    }
+
+    if (!data.description?.trim()) {
+      setError('Description of work is required.')
+      return
+    }
+
+    if (jobCodes && jobCodes.length > 0 && !data.job_code_id) {
+      setError('Job code is required when the selected location has job codes.')
+      return
+    }
+
+    setError('')
+
     const entry: TimeEntryCreate = {
       work_date: data.work_date,
       client_id: data.client_id || undefined,
@@ -283,9 +313,9 @@ export default function TimeEntry() {
       service_type_id: data.service_type_id || undefined,
       work_mode: data.work_mode,
       hours: data.hours,
-      start_time: data.start_time || undefined,
-      end_time: data.end_time || undefined,
-      description: data.description || undefined,
+      start_time: durationInputMode === 'by_times' ? (data.start_time || undefined) : undefined,
+      end_time: durationInputMode === 'by_times' ? (data.end_time || undefined) : undefined,
+      description: data.description.trim(),
       vehicle_reimbursement_tier: data.vehicle_reimbursement_tier || undefined,
       is_billable: true,
     }
@@ -418,61 +448,107 @@ export default function TimeEntry() {
           )}
         </div>
 
-        {/* Start / End Time */}
+        {/* Duration: start/end OR hours — mutually exclusive */}
         <div>
-          <label className="label">Start &amp; End Time (optional)</label>
-          <div className="grid grid-cols-2 gap-2">
-            <input
-              type="time"
-              {...register('start_time')}
-              className="input"
-              disabled={!canEditForm}
-              placeholder="Start"
-            />
-            <input
-              type="time"
-              {...register('end_time')}
-              className="input"
-              disabled={!canEditForm}
-              placeholder="End"
-            />
+          <label className="label">Duration</label>
+          <p className="text-gray-500 text-xs mb-2">Choose one: clock times (hours computed) or hours worked.</p>
+          <div className="grid grid-cols-2 gap-2 mb-3">
+            <label
+              className={`flex items-center justify-center p-3 rounded-lg border cursor-pointer transition-colors text-sm text-center ${
+                durationInputMode === 'by_times'
+                  ? 'bg-primary-100 border-primary-500 text-primary-700'
+                  : 'border-gray-300 hover:border-gray-400'
+              } ${!canEditForm ? 'opacity-50 cursor-not-allowed' : ''}`}
+            >
+              <input
+                type="radio"
+                name="duration_input_mode"
+                checked={durationInputMode === 'by_times'}
+                onChange={() => {
+                  if (!canEditForm) return
+                  setDurationInputMode('by_times')
+                }}
+                className="sr-only"
+                disabled={!canEditForm}
+              />
+              Start &amp; end time
+            </label>
+            <label
+              className={`flex items-center justify-center p-3 rounded-lg border cursor-pointer transition-colors text-sm text-center ${
+                durationInputMode === 'by_hours'
+                  ? 'bg-primary-100 border-primary-500 text-primary-700'
+                  : 'border-gray-300 hover:border-gray-400'
+              } ${!canEditForm ? 'opacity-50 cursor-not-allowed' : ''}`}
+            >
+              <input
+                type="radio"
+                name="duration_input_mode"
+                checked={durationInputMode === 'by_hours'}
+                onChange={() => {
+                  if (!canEditForm) return
+                  setDurationInputMode('by_hours')
+                  setValue('start_time', '')
+                  setValue('end_time', '')
+                }}
+                className="sr-only"
+                disabled={!canEditForm}
+              />
+              Hours worked
+            </label>
           </div>
-          {startTime && endTime && calcHoursFromTimes(startTime, endTime) !== null && (
-            <p className="text-gray-500 text-xs mt-1">
-              Calculated: {calcHoursFromTimes(startTime, endTime)}h
-            </p>
-          )}
-          {startTime && endTime && calcHoursFromTimes(startTime, endTime) === null && (
-            <p className="text-red-500 text-xs mt-1">
-              End time must be after start time
-            </p>
-          )}
-        </div>
 
-        {/* Hours - Large buttons for easy mobile selection */}
-        <div>
-          <label className="label">Hours Worked</label>
-          <div className="grid grid-cols-4 gap-2">
-            {HOUR_OPTIONS.map((h) => (
-              <label
-                key={h}
-                className={`flex items-center justify-center p-3 rounded-lg border cursor-pointer transition-colors ${
-                  watch('hours') === h
-                    ? 'bg-primary-100 border-primary-500 text-primary-700'
-                    : 'border-gray-300 hover:border-gray-400'
-                } ${!canEditForm ? 'opacity-50 cursor-not-allowed' : ''}`}
-              >
-                <input
-                  type="radio"
-                  value={h}
-                  {...register('hours', { valueAsNumber: true })}
-                  className="sr-only"
+          {durationInputMode === 'by_times' && (
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs font-medium text-gray-700">Start</label>
+                  <input
+                    type="time"
+                    {...register('start_time')}
+                    className="input"
+                    disabled={!canEditForm}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-700">End</label>
+                  <input
+                    type="time"
+                    {...register('end_time')}
+                    className="input"
+                    disabled={!canEditForm}
+                  />
+                </div>
+              </div>
+              {startTime && endTime && calcHoursFromTimes(startTime, endTime) !== null && (
+                <p className="text-gray-500 text-xs mt-1">
+                  Hours worked: {calcHoursFromTimes(startTime, endTime)}h
+                </p>
+              )}
+              {startTime && endTime && calcHoursFromTimes(startTime, endTime) === null && (
+                <p className="text-red-500 text-xs mt-1">End time must be after start time</p>
+              )}
+            </>
+          )}
+
+          {durationInputMode === 'by_hours' && (
+            <div className="grid grid-cols-4 gap-2">
+              {HOUR_OPTIONS.map((h) => (
+                <button
+                  key={h}
+                  type="button"
                   disabled={!canEditForm}
-                />
-                {h}
-              </label>
-            ))}
-          </div>
+                  onClick={() => setValue('hours', h, { shouldDirty: true, shouldTouch: true })}
+                  className={`flex items-center justify-center p-3 rounded-lg border transition-colors text-sm ${
+                    Number(hoursWatched) === h
+                      ? 'bg-primary-100 border-primary-500 text-primary-700'
+                      : 'border-gray-300 hover:border-gray-400'
+                  } ${!canEditForm ? 'opacity-50 cursor-not-allowed' : ''}`}
+                >
+                  {h}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Work Mode */}
@@ -545,7 +621,7 @@ export default function TimeEntry() {
               <SearchableSelect
                 options={(locations || []).map((l) => ({
                   value: l.id,
-                  label: `${l.region ? `${l.region} - ` : ''}${l.site_name}`,
+                  label: `${l.site_code ? `[${l.site_code}] ` : ''}${l.region ? `${l.region} - ` : ''}${l.site_name}`,
                 }))}
                 value={watch('location_id')}
                 onChange={(val) => setValue('location_id', val)}
@@ -556,13 +632,53 @@ export default function TimeEntry() {
               <p className="text-sm text-gray-500 py-2">No locations for this client yet.</p>
             )}
 
+            {selectedLocationDetail && (
+              <div className="mt-2 text-sm space-y-1 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                {selectedLocationDetail.site_code && (
+                  <p>
+                    <span className="text-gray-500">Site code:</span>{' '}
+                    <span className="font-mono">{selectedLocationDetail.site_code}</span>
+                  </p>
+                )}
+                {selectedLocationDetail.job_codes && selectedLocationDetail.job_codes.length > 0 && (
+                  <p>
+                    <span className="text-gray-500">Job codes:</span>{' '}
+                    <span className="font-mono">
+                      {selectedLocationDetail.job_codes.map((j) => j.code).join(', ')}
+                    </span>
+                  </p>
+                )}
+                {(() => {
+                  const lat = parseCoord(selectedLocationDetail.latitude)
+                  const lng = parseCoord(selectedLocationDetail.longitude)
+                  const url =
+                    lat !== null && lng !== null ? googleMapsDirectionsUrl(lat, lng) : null
+                  if (!url) {
+                    return (
+                      <p className="text-xs text-gray-400">No GPS on file for this location.</p>
+                    )
+                  }
+                  return (
+                    <a
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-primary-600 font-medium"
+                    >
+                      Directions in Google Maps
+                    </a>
+                  )
+                })()}
+              </div>
+            )}
+
             {/* Site request success message */}
             {siteRequestSent && (
               <div className="bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded-lg text-sm mt-2 flex items-center gap-2">
                 <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
-                Site request submitted. Your manager will review it shortly.
+                Location request submitted. Your manager will review it shortly.
               </div>
             )}
 
@@ -576,7 +692,7 @@ export default function TimeEntry() {
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                 </svg>
-                Can't find your site? Request a new one
+                Can't find your location? Request a new one
               </button>
             )}
 
@@ -584,7 +700,7 @@ export default function TimeEntry() {
             {showSiteRequest && (
               <div className="mt-2 border border-primary-200 bg-primary-50 rounded-lg p-3 space-y-3">
                 <div className="flex items-center justify-between">
-                  <h4 className="font-medium text-sm text-gray-900">Request New Site</h4>
+                  <h4 className="font-medium text-sm text-gray-900">Request New Location</h4>
                   <button
                     type="button"
                     onClick={() => setShowSiteRequest(false)}
@@ -612,21 +728,25 @@ export default function TimeEntry() {
         )}
 
         {/* Job Code - Only show when location is selected */}
-        {selectedLocationId && jobCodes && jobCodes.length > 0 && (
+        {selectedLocationId && (
           <div>
-            <label className="label">Job Code</label>
-            <select
-              {...register('job_code_id')}
-              className="input"
-              disabled={!canEditForm}
-            >
-              <option value="">Select a job code</option>
-              {jobCodes?.map((jobCode) => (
-                <option key={jobCode.id} value={jobCode.id}>
-                  {jobCode.code}{jobCode.description ? ` - ${jobCode.description}` : ''}
-                </option>
-              ))}
-            </select>
+            <label className="label">Job Code{jobCodes && jobCodes.length > 0 ? ' *' : ''}</label>
+            {jobCodes && jobCodes.length > 0 ? (
+              <select
+                {...register('job_code_id', jobCodes.length > 0 ? { required: 'Job code is required' } : {})}
+                className="input"
+                disabled={!canEditForm}
+              >
+                <option value="">Select a job code</option>
+                {jobCodes.map((jobCode) => (
+                  <option key={jobCode.id} value={jobCode.id}>
+                    {jobCode.code}{jobCode.description ? ` - ${jobCode.description}` : ''}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <p className="text-sm text-gray-500 py-2">No job codes for this location.</p>
+            )}
           </div>
         )}
 
@@ -649,13 +769,16 @@ export default function TimeEntry() {
 
         {/* Description */}
         <div>
-          <label className="label">Description of Work</label>
+          <label className="label">Description of Work *</label>
           <textarea
-            {...register('description')}
+            {...register('description', { required: 'Description of work is required' })}
             className="input min-h-[100px]"
             placeholder="Describe the work performed..."
             disabled={!canEditForm}
           />
+          {errors.description && (
+            <p className="text-red-500 text-sm mt-1">{errors.description.message}</p>
+          )}
         </div>
 
         {/* Vehicle Reimbursement */}

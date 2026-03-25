@@ -6,6 +6,7 @@ import * as api from '../services/api'
 import type { TimeEntryCreate } from '../types'
 import SearchableSelect from '../components/SearchableSelect'
 import { getEntryDateMax, isTimesheetEditable, isTimesheetReadOnly } from '../timesheetStatus'
+import { googleMapsDirectionsUrl, parseCoord } from '../utils/maps'
 
 const HOUR_OPTIONS = [
   0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8,
@@ -34,6 +35,8 @@ interface FormData {
   vehicle_reimbursement_tier: string
 }
 
+type DurationInputMode = 'by_times' | 'by_hours'
+
 function calcHoursFromTimes(start: string, end: string): number | null {
   if (!start || !end) return null
   const [sh, sm] = start.split(':').map(Number)
@@ -48,6 +51,7 @@ export default function TimeEntryEdit() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [error, setError] = useState('')
+  const [durationInputMode, setDurationInputMode] = useState<DurationInputMode>('by_hours')
 
   const { data: timesheet } = useQuery({
     queryKey: ['timesheet', timesheetId],
@@ -98,6 +102,8 @@ export default function TimeEntryEdit() {
   // Load entry data into form when available
   useEffect(() => {
     if (entry) {
+      const hasTimes = !!(entry.start_time && entry.end_time)
+      setDurationInputMode(hasTimes ? 'by_times' : 'by_hours')
       reset({
         work_date: entry.work_date,
         work_mode: entry.work_mode,
@@ -117,16 +123,18 @@ export default function TimeEntryEdit() {
   const workMode = watch('work_mode')
   const startTime = watch('start_time')
   const endTime = watch('end_time')
+  const hoursWatched = watch('hours')
   const selectedClientId = watch('client_id')
   const selectedLocationId = watch('location_id')
 
-  // Auto-calculate hours from start/end times
+  // Auto-calculate hours from start/end only in time-range mode
   useEffect(() => {
+    if (durationInputMode !== 'by_times') return
     const calculated = calcHoursFromTimes(startTime, endTime)
     if (calculated !== null) {
       setValue('hours', calculated)
     }
-  }, [startTime, endTime, setValue])
+  }, [startTime, endTime, setValue, durationInputMode])
 
   // Track whether entry data has loaded to avoid resetting on initial populate
   const entryLoadedRef = useRef(false)
@@ -134,19 +142,23 @@ export default function TimeEntryEdit() {
     if (entry) entryLoadedRef.current = true
   }, [entry])
 
-  // Fetch locations when client changes
+  // Fetch locations when client changes (staleTime: 0 so approved location requests appear immediately)
   const { data: locations } = useQuery({
     queryKey: ['locations', selectedClientId],
     queryFn: () => api.getLocations(selectedClientId),
     enabled: !!selectedClientId,
+    staleTime: 0,
   })
 
-  // Fetch job codes when location changes
+  // Fetch job codes when location changes (staleTime: 0 so approved job codes appear immediately)
   const { data: jobCodes } = useQuery({
     queryKey: ['jobCodes', selectedLocationId],
     queryFn: () => api.getJobCodes(selectedLocationId),
     enabled: !!selectedLocationId,
+    staleTime: 0,
   })
+
+  const selectedLocationDetail = locations?.find((l) => l.id === selectedLocationId)
 
   // Reset location and job code when client changes (skip initial entry load)
   const prevClientRef = useRef(selectedClientId)
@@ -182,6 +194,17 @@ export default function TimeEntryEdit() {
   })
 
   const onSubmit = (data: FormData) => {
+    if (durationInputMode === 'by_times') {
+      const calc = calcHoursFromTimes(data.start_time, data.end_time)
+      if (!data.start_time?.trim() || !data.end_time?.trim() || calc === null) {
+        setError('Enter a valid start and end time (end must be after start).')
+        return
+      }
+      setError('')
+    } else {
+      setError('')
+    }
+
     const updateData: Partial<TimeEntryCreate> = {
       work_date: data.work_date,
       client_id: data.client_id || undefined,
@@ -190,8 +213,8 @@ export default function TimeEntryEdit() {
       service_type_id: data.service_type_id || undefined,
       work_mode: data.work_mode,
       hours: data.hours,
-      start_time: data.start_time || undefined,
-      end_time: data.end_time || undefined,
+      start_time: durationInputMode === 'by_times' ? (data.start_time || undefined) : null,
+      end_time: durationInputMode === 'by_times' ? (data.end_time || undefined) : null,
       description: data.description || undefined,
       vehicle_reimbursement_tier: data.vehicle_reimbursement_tier || undefined,
     }
@@ -256,61 +279,107 @@ export default function TimeEntryEdit() {
           )}
         </div>
 
-        {/* Start / End Time */}
+        {/* Duration: start/end OR hours — mutually exclusive */}
         <div>
-          <label className="label">Start &amp; End Time (optional)</label>
-          <div className="grid grid-cols-2 gap-2">
-            <input
-              type="time"
-              {...register('start_time')}
-              className="input"
-              disabled={!canEdit}
-              placeholder="Start"
-            />
-            <input
-              type="time"
-              {...register('end_time')}
-              className="input"
-              disabled={!canEdit}
-              placeholder="End"
-            />
+          <label className="label">Duration</label>
+          <p className="text-gray-500 text-xs mb-2">Choose one: clock times (hours computed) or hours worked.</p>
+          <div className="grid grid-cols-2 gap-2 mb-3">
+            <label
+              className={`flex items-center justify-center p-3 rounded-lg border cursor-pointer transition-colors text-sm text-center ${
+                durationInputMode === 'by_times'
+                  ? 'bg-primary-100 border-primary-500 text-primary-700'
+                  : 'border-gray-300 hover:border-gray-400'
+              } ${!canEdit ? 'opacity-50 cursor-not-allowed' : ''}`}
+            >
+              <input
+                type="radio"
+                name="duration_input_mode"
+                checked={durationInputMode === 'by_times'}
+                onChange={() => {
+                  if (!canEdit) return
+                  setDurationInputMode('by_times')
+                }}
+                className="sr-only"
+                disabled={!canEdit}
+              />
+              Start &amp; end time
+            </label>
+            <label
+              className={`flex items-center justify-center p-3 rounded-lg border cursor-pointer transition-colors text-sm text-center ${
+                durationInputMode === 'by_hours'
+                  ? 'bg-primary-100 border-primary-500 text-primary-700'
+                  : 'border-gray-300 hover:border-gray-400'
+              } ${!canEdit ? 'opacity-50 cursor-not-allowed' : ''}`}
+            >
+              <input
+                type="radio"
+                name="duration_input_mode"
+                checked={durationInputMode === 'by_hours'}
+                onChange={() => {
+                  if (!canEdit) return
+                  setDurationInputMode('by_hours')
+                  setValue('start_time', '')
+                  setValue('end_time', '')
+                }}
+                className="sr-only"
+                disabled={!canEdit}
+              />
+              Hours worked
+            </label>
           </div>
-          {startTime && endTime && calcHoursFromTimes(startTime, endTime) !== null && (
-            <p className="text-gray-500 text-xs mt-1">
-              Calculated: {calcHoursFromTimes(startTime, endTime)}h
-            </p>
-          )}
-          {startTime && endTime && calcHoursFromTimes(startTime, endTime) === null && (
-            <p className="text-red-500 text-xs mt-1">
-              End time must be after start time
-            </p>
-          )}
-        </div>
 
-        {/* Hours */}
-        <div>
-          <label className="label">Hours Worked</label>
-          <div className="grid grid-cols-4 gap-2">
-            {HOUR_OPTIONS.map((h) => (
-              <label
-                key={h}
-                className={`flex items-center justify-center p-3 rounded-lg border cursor-pointer transition-colors ${
-                  watch('hours') === h
-                    ? 'bg-primary-100 border-primary-500 text-primary-700'
-                    : 'border-gray-300 hover:border-gray-400'
-                } ${!canEdit ? 'opacity-50 cursor-not-allowed' : ''}`}
-              >
-                <input
-                  type="radio"
-                  value={h}
-                  {...register('hours', { valueAsNumber: true })}
-                  className="sr-only"
+          {durationInputMode === 'by_times' && (
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs font-medium text-gray-700">Start</label>
+                  <input
+                    type="time"
+                    {...register('start_time')}
+                    className="input"
+                    disabled={!canEdit}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-700">End</label>
+                  <input
+                    type="time"
+                    {...register('end_time')}
+                    className="input"
+                    disabled={!canEdit}
+                  />
+                </div>
+              </div>
+              {startTime && endTime && calcHoursFromTimes(startTime, endTime) !== null && (
+                <p className="text-gray-500 text-xs mt-1">
+                  Hours worked: {calcHoursFromTimes(startTime, endTime)}h
+                </p>
+              )}
+              {startTime && endTime && calcHoursFromTimes(startTime, endTime) === null && (
+                <p className="text-red-500 text-xs mt-1">End time must be after start time</p>
+              )}
+            </>
+          )}
+
+          {durationInputMode === 'by_hours' && (
+            <div className="grid grid-cols-4 gap-2">
+              {HOUR_OPTIONS.map((h) => (
+                <button
+                  key={h}
+                  type="button"
                   disabled={!canEdit}
-                />
-                {h}
-              </label>
-            ))}
-          </div>
+                  onClick={() => setValue('hours', h, { shouldDirty: true, shouldTouch: true })}
+                  className={`flex items-center justify-center p-3 rounded-lg border transition-colors text-sm ${
+                    Number(hoursWatched) === h
+                      ? 'bg-primary-100 border-primary-500 text-primary-700'
+                      : 'border-gray-300 hover:border-gray-400'
+                  } ${!canEdit ? 'opacity-50 cursor-not-allowed' : ''}`}
+                >
+                  {h}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Work Mode */}
@@ -382,32 +451,75 @@ export default function TimeEntryEdit() {
             <SearchableSelect
               options={(locations || []).map((l) => ({
                 value: l.id,
-                label: `${l.region ? `${l.region} - ` : ''}${l.site_name}`,
+                label: `${l.site_code ? `[${l.site_code}] ` : ''}${l.region ? `${l.region} - ` : ''}${l.site_name}`,
               }))}
               value={watch('location_id')}
               onChange={(val) => setValue('location_id', val)}
               placeholder="Select a location"
               disabled={!canEdit}
             />
+            {selectedLocationDetail && (
+              <div className="mt-2 text-sm space-y-1 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                {selectedLocationDetail.site_code && (
+                  <p>
+                    <span className="text-gray-500">Site code:</span>{' '}
+                    <span className="font-mono">{selectedLocationDetail.site_code}</span>
+                  </p>
+                )}
+                {selectedLocationDetail.job_codes && selectedLocationDetail.job_codes.length > 0 && (
+                  <p>
+                    <span className="text-gray-500">Job codes:</span>{' '}
+                    <span className="font-mono">
+                      {selectedLocationDetail.job_codes.map((j) => j.code).join(', ')}
+                    </span>
+                  </p>
+                )}
+                {(() => {
+                  const lat = parseCoord(selectedLocationDetail.latitude)
+                  const lng = parseCoord(selectedLocationDetail.longitude)
+                  const url =
+                    lat !== null && lng !== null ? googleMapsDirectionsUrl(lat, lng) : null
+                  if (!url) {
+                    return (
+                      <p className="text-xs text-gray-400">No GPS on file for this location.</p>
+                    )
+                  }
+                  return (
+                    <a
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-primary-600 font-medium"
+                    >
+                      Directions in Google Maps
+                    </a>
+                  )
+                })()}
+              </div>
+            )}
           </div>
         )}
 
         {/* Job Code */}
-        {selectedLocationId && jobCodes && jobCodes.length > 0 && (
+        {selectedLocationId && (
           <div>
             <label className="label">Job Code</label>
-            <select
-              {...register('job_code_id')}
-              className="input"
-              disabled={!canEdit}
-            >
-              <option value="">Select a job code</option>
-              {jobCodes?.map((jobCode) => (
-                <option key={jobCode.id} value={jobCode.id}>
-                  {jobCode.code}{jobCode.description ? ` - ${jobCode.description}` : ''}
-                </option>
-              ))}
-            </select>
+            {jobCodes && jobCodes.length > 0 ? (
+              <select
+                {...register('job_code_id')}
+                className="input"
+                disabled={!canEdit}
+              >
+                <option value="">Select a job code</option>
+                {jobCodes.map((jobCode) => (
+                  <option key={jobCode.id} value={jobCode.id}>
+                    {jobCode.code}{jobCode.description ? ` - ${jobCode.description}` : ''}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <p className="text-sm text-gray-500 py-2">No job codes for this location.</p>
+            )}
           </div>
         )}
 

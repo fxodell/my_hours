@@ -1,6 +1,7 @@
 import uuid
+from decimal import Decimal
 from typing import TYPE_CHECKING, Optional
-from sqlalchemy import String, Boolean, ForeignKey
+from sqlalchemy import String, Boolean, ForeignKey, Numeric
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -30,6 +31,9 @@ class Location(Base, UUIDMixin, TimestampMixin):
     )
     region: Mapped[Optional[str]] = mapped_column(String(100))  # e.g., "Alpine High"
     site_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    site_code: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    latitude: Mapped[Optional[Decimal]] = mapped_column(Numeric(11, 8), nullable=True)
+    longitude: Mapped[Optional[Decimal]] = mapped_column(Numeric(11, 8), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     # Relationships

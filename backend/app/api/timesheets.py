@@ -11,6 +11,7 @@ from app.models.time_entry import TimeEntry
 from app.models.pto_entry import PTOEntry
 from app.models.pay_period import PayPeriod
 from app.models.employee import Employee
+from app.models.job_code import JobCode
 from app.schemas.timesheet import TimesheetCreate, TimesheetReject, TimesheetResponse
 from app.schemas.time_entry import TimeEntryCreate, TimeEntryUpdate, TimeEntryResponse
 from app.schemas.pto_entry import PTOEntryCreate, PTOEntryUpdate, PTOEntryResponse
@@ -802,6 +803,28 @@ async def create_time_entry(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Cannot modify entry in a billing week that is approved or billed",
         )
+
+    # Require description on create
+    if not entry_data.description or not entry_data.description.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Description is required",
+        )
+
+    # Require job_code_id when location has active job codes
+    if entry_data.location_id:
+        jc_count = (await db.execute(
+            select(func.count()).select_from(JobCode).where(
+                JobCode.location_id == entry_data.location_id,
+                JobCode.company_id == current_user.company_id,
+                JobCode.is_active == True,
+            )
+        )).scalar()
+        if jc_count > 0 and not entry_data.job_code_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Job code is required when the selected location has active job codes",
+            )
 
     entry = TimeEntry(timesheet_id=timesheet_id, **entry_data.model_dump())
     db.add(entry)

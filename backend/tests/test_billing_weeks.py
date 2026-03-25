@@ -82,6 +82,7 @@ async def test_billed_billing_week_blocks_time_entry_mutations(
             "work_date": "2026-03-03",
             "work_mode": "remote",
             "hours": 8,
+            "description": "Test work",
         },
     )
     assert entry_resp.status_code == 201
@@ -120,6 +121,7 @@ async def test_billed_billing_week_blocks_time_entry_mutations(
             "work_date": "2026-03-04",
             "work_mode": "remote",
             "hours": 4,
+            "description": "Locked week",
         },
     )
     assert create_locked_resp.status_code == 403

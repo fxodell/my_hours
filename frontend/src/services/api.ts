@@ -433,14 +433,32 @@ export async function getAllLocations(clientId?: string): Promise<Location[]> {
   return fetchApi<Location[]>(`/locations?${params.toString()}`)
 }
 
-export async function createLocation(data: { client_id: string; site_name: string; region?: string; is_active?: boolean }): Promise<Location> {
+export async function createLocation(data: {
+  client_id: string
+  site_name: string
+  region?: string
+  site_code?: string | null
+  latitude?: number | null
+  longitude?: number | null
+  is_active?: boolean
+}): Promise<Location> {
   return fetchApi<Location>('/locations', {
     method: 'POST',
     body: JSON.stringify(data),
   })
 }
 
-export async function updateLocation(id: string, data: Partial<{ site_name: string; region: string | null; is_active: boolean }>): Promise<Location> {
+export async function updateLocation(
+  id: string,
+  data: Partial<{
+    site_name: string
+    region: string | null
+    site_code: string | null
+    latitude: number | null
+    longitude: number | null
+    is_active: boolean
+  }>,
+): Promise<Location> {
   return fetchApi<Location>(`/locations/${id}`, {
     method: 'PATCH',
     body: JSON.stringify(data),
@@ -595,6 +613,10 @@ export async function rejectSiteRequest(id: string, reason: string): Promise<Sit
     method: 'POST',
     body: JSON.stringify({ rejection_reason: reason }),
   })
+}
+
+export async function deleteSiteRequest(id: string): Promise<void> {
+  await fetchApi(`/site-requests/${id}`, { method: 'DELETE' })
 }
 
 // Admin reset password

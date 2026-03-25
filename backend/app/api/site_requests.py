@@ -221,6 +221,25 @@ async def approve_site_request(
     )
 
 
+@router.delete("/{request_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_site_request(
+    request_id: UUID,
+    db: DB,
+    current_user: CurrentManager,
+) -> None:
+    result = await db.execute(
+        select(SiteRequest)
+        .where(SiteRequest.id == request_id)
+        .where(SiteRequest.company_id == current_user.company_id)
+    )
+    site_request = result.scalar_one_or_none()
+    if not site_request:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Site request not found")
+
+    await db.delete(site_request)
+    await db.commit()
+
+
 @router.post("/{request_id}/reject", response_model=SiteRequestResponse)
 async def reject_site_request(
     request_id: UUID,

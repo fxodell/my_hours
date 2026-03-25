@@ -22,6 +22,9 @@
 - [ ] Verify PWA icon files exist in public directory (pwa-192x192.png, pwa-512x512.png)
 
 ## Completed
+- [x] Billing week workflow: BillingWeek model with auto-creation per timesheet, status transitions (open → submitted → approved → billed, with reopen), entry locking for approved/billed weeks, manager billing week management endpoints, frontend billing week status cards and actions on TimesheetDetail page
+- [x] Super admin role: is_super_admin flag on Employee, CurrentSuperAdmin dependency, cross-company data access via resolve_company_id(), CompanyContext + CompanySelector for frontend company switching, SuperAdminRoute guard
+- [x] Company management UI: Companies CRUD page (super-admin only) with create/edit/deactivate, slug validation, active/inactive filter
 - [x] Multi-tenant company isolation: Company model, company_id FK on all entities, tenant-scoped queries in all endpoints, super-admin role, Company CRUD API + UI, tenant-scoped password reset, 26 isolation tests, migration with backfill
 - [x] Fix `TimeEntry.tsx` pay period selector: compute `isCurrentPeriod` from dates instead of hardcoded `true` (matching `PTOEntry.tsx` behavior)
 - [x] Fix `Profile.tsx` success message: auto-dismiss after 5 seconds instead of persisting forever
