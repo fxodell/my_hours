@@ -150,8 +150,8 @@ export default function TimeEntryEdit() {
     staleTime: 0,
   })
 
-  // Fetch job codes when location changes (staleTime: 0 so approved job codes appear immediately)
-  const { data: jobCodes } = useQuery({
+  // Fetch site codes when location changes (staleTime: 0 so approved site codes appear immediately)
+  const { data: siteCodes } = useQuery({
     queryKey: ['jobCodes', selectedLocationId],
     queryFn: () => api.getJobCodes(selectedLocationId),
     enabled: !!selectedLocationId,
@@ -160,7 +160,7 @@ export default function TimeEntryEdit() {
 
   const selectedLocationDetail = locations?.find((l) => l.id === selectedLocationId)
 
-  // Reset location and job code when client changes (skip initial entry load)
+  // Reset location and site code when client changes (skip initial entry load)
   const prevClientRef = useRef(selectedClientId)
   useEffect(() => {
     if (entryLoadedRef.current && prevClientRef.current !== selectedClientId) {
@@ -170,7 +170,7 @@ export default function TimeEntryEdit() {
     prevClientRef.current = selectedClientId
   }, [selectedClientId, setValue])
 
-  // Reset job code when location changes (skip initial entry load)
+  // Reset site code when location changes (skip initial entry load)
   const prevLocationRef = useRef(selectedLocationId)
   useEffect(() => {
     if (entryLoadedRef.current && prevLocationRef.current !== selectedLocationId) {
@@ -468,7 +468,7 @@ export default function TimeEntryEdit() {
                 )}
                 {selectedLocationDetail.job_codes && selectedLocationDetail.job_codes.length > 0 && (
                   <p>
-                    <span className="text-gray-500">Job codes:</span>{' '}
+                    <span className="text-gray-500">Site codes:</span>{' '}
                     <span className="font-mono">
                       {selectedLocationDetail.job_codes.map((j) => j.code).join(', ')}
                     </span>
@@ -500,25 +500,25 @@ export default function TimeEntryEdit() {
           </div>
         )}
 
-        {/* Job Code */}
+        {/* Site Code */}
         {selectedLocationId && (
           <div>
-            <label className="label">Job Code</label>
-            {jobCodes && jobCodes.length > 0 ? (
+            <label className="label">Site Code</label>
+            {siteCodes && siteCodes.length > 0 ? (
               <select
                 {...register('job_code_id')}
                 className="input"
                 disabled={!canEdit}
               >
-                <option value="">Select a job code</option>
-                {jobCodes.map((jobCode) => (
-                  <option key={jobCode.id} value={jobCode.id}>
-                    {jobCode.code}{jobCode.description ? ` - ${jobCode.description}` : ''}
+                <option value="">Select a site code</option>
+                {siteCodes.map((sc) => (
+                  <option key={sc.id} value={sc.id}>
+                    {sc.code}{sc.description ? ` - ${sc.description}` : ''}
                   </option>
                 ))}
               </select>
             ) : (
-              <p className="text-sm text-gray-500 py-2">No job codes for this location.</p>
+              <p className="text-sm text-gray-500 py-2">No site codes for this location.</p>
             )}
           </div>
         )}

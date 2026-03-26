@@ -215,7 +215,7 @@ export default function Dashboard() {
             </div>
             <div>
               <p className="font-medium text-gray-900">Location lookup</p>
-              <p className="text-sm text-gray-500">Sites, job codes, directions in Maps</p>
+              <p className="text-sm text-gray-500">Sites, site codes, directions in Maps</p>
             </div>
           </Link>
 
@@ -316,7 +316,7 @@ export default function Dashboard() {
                   </div>
                   <div>
                     <p className="font-medium text-gray-900">Locations</p>
-                    <p className="text-sm text-gray-500">Manage locations & job codes</p>
+                    <p className="text-sm text-gray-500">Manage locations & site codes</p>
                   </div>
                 </Link>
 

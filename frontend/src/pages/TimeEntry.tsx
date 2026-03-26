@@ -98,7 +98,7 @@ function SiteRequestInlineForm({
         />
       </div>
       <div>
-        <label className="text-xs font-medium text-gray-700">AFE / Job Code</label>
+        <label className="text-xs font-medium text-gray-700">AFE / Site Code</label>
         <input
           type="text"
           value={jobCode}
@@ -247,8 +247,8 @@ export default function TimeEntry() {
     staleTime: 0,
   })
 
-  // Fetch job codes when location changes (staleTime: 0 so approved job codes appear immediately)
-  const { data: jobCodes } = useQuery({
+  // Fetch site codes when location changes (staleTime: 0 so approved site codes appear immediately)
+  const { data: siteCodes } = useQuery({
     queryKey: ['jobCodes', selectedLocationId],
     queryFn: () => api.getJobCodes(selectedLocationId),
     enabled: !!selectedLocationId,
@@ -263,7 +263,7 @@ export default function TimeEntry() {
     setValue('job_code_id', '')
   }, [selectedClientId, setValue])
 
-  // Reset job code when location changes
+  // Reset site code when location changes
   useEffect(() => {
     setValue('job_code_id', '')
   }, [selectedLocationId, setValue])
@@ -298,8 +298,8 @@ export default function TimeEntry() {
       return
     }
 
-    if (jobCodes && jobCodes.length > 0 && !data.job_code_id) {
-      setError('Job code is required when the selected location has job codes.')
+    if (siteCodes && siteCodes.length > 0 && !data.job_code_id) {
+      setError('Site code is required when the selected location has site codes.')
       return
     }
 
@@ -642,7 +642,7 @@ export default function TimeEntry() {
                 )}
                 {selectedLocationDetail.job_codes && selectedLocationDetail.job_codes.length > 0 && (
                   <p>
-                    <span className="text-gray-500">Job codes:</span>{' '}
+                    <span className="text-gray-500">Site codes:</span>{' '}
                     <span className="font-mono">
                       {selectedLocationDetail.job_codes.map((j) => j.code).join(', ')}
                     </span>
@@ -727,25 +727,25 @@ export default function TimeEntry() {
           </div>
         )}
 
-        {/* Job Code - Only show when location is selected */}
+        {/* Site Code - Only show when location is selected */}
         {selectedLocationId && (
           <div>
-            <label className="label">Job Code{jobCodes && jobCodes.length > 0 ? ' *' : ''}</label>
-            {jobCodes && jobCodes.length > 0 ? (
+            <label className="label">Site Code{siteCodes && siteCodes.length > 0 ? ' *' : ''}</label>
+            {siteCodes && siteCodes.length > 0 ? (
               <select
-                {...register('job_code_id', jobCodes.length > 0 ? { required: 'Job code is required' } : {})}
+                {...register('job_code_id', siteCodes.length > 0 ? { required: 'Site code is required' } : {})}
                 className="input"
                 disabled={!canEditForm}
               >
-                <option value="">Select a job code</option>
-                {jobCodes.map((jobCode) => (
-                  <option key={jobCode.id} value={jobCode.id}>
-                    {jobCode.code}{jobCode.description ? ` - ${jobCode.description}` : ''}
+                <option value="">Select a site code</option>
+                {siteCodes.map((sc) => (
+                  <option key={sc.id} value={sc.id}>
+                    {sc.code}{sc.description ? ` - ${sc.description}` : ''}
                   </option>
                 ))}
               </select>
             ) : (
-              <p className="text-sm text-gray-500 py-2">No job codes for this location.</p>
+              <p className="text-sm text-gray-500 py-2">No site codes for this location.</p>
             )}
           </div>
         )}

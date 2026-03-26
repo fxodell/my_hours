@@ -88,7 +88,7 @@ export interface DetailRow {
   location: string
   region: string
   site_code: string
-  job_code_description: string
+  site_code_description: string
   service_type: string
   work_mode: string
   hours: number
@@ -128,17 +128,17 @@ export interface DetailReport {
   data: DetailRow[]
 }
 
-// === Hours by Job Code ===
-export interface HoursByJobCodeRow {
+// === Hours by Site Code ===
+export interface HoursBySiteCodeRow {
   client: string
   service_type: string
-  job_code: string
+  site_code: string
   total_hours: number
 }
 
-export interface HoursByJobCodeReport {
-  report: 'hours_by_job_code'
-  data: HoursByJobCodeRow[]
+export interface HoursBySiteCodeReport {
+  report: 'hours_by_site_code'
+  data: HoursBySiteCodeRow[]
 }
 
 // === Hours by Employee ===

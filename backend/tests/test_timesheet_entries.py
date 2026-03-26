@@ -345,7 +345,7 @@ async def test_create_entry_requires_job_code_when_location_has_codes(
         },
     )
     assert response.status_code == 400
-    assert "Job code is required" in response.json()["detail"]
+    assert "Site code is required" in response.json()["detail"]
 
     # With job_code_id → 201
     response = await client.post(

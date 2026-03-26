@@ -662,7 +662,7 @@ import type {
   BiweeklyReport,
   DetailReport,
   HoursByEmployeeReport,
-  HoursByJobCodeReport,
+  HoursBySiteCodeReport,
 } from '../types/reports'
 
 export async function previewMyTimeDetail(params: {
@@ -741,7 +741,7 @@ export async function getHoursByEmployeeReport(startDate?: string, endDate?: str
   return fetchApiBlob(`/reports/hours-by-employee?${qs}`)
 }
 
-export async function getHoursByJobCodeReport(params: {
+export async function getHoursBySiteCodeReport(params: {
   startDate?: string; endDate?: string; clientId?: string; companyId?: string; format?: string
 }): Promise<Blob> {
   const fmt = params.format || 'csv'
@@ -761,15 +761,15 @@ export async function previewHoursByEmployee(startDate?: string, endDate?: strin
   return fetchApi<HoursByEmployeeReport>(`/reports/hours-by-employee?${qs}`)
 }
 
-export async function previewHoursByJobCode(params: {
+export async function previewHoursBySiteCode(params: {
   startDate?: string; endDate?: string; clientId?: string; companyId?: string
-}): Promise<HoursByJobCodeReport> {
+}): Promise<HoursBySiteCodeReport> {
   const qs = new URLSearchParams({ format: 'json' })
   if (params.startDate) qs.set('start_date', params.startDate)
   if (params.endDate) qs.set('end_date', params.endDate)
   if (params.clientId) qs.set('client_id', params.clientId)
   if (params.companyId) qs.set('company_id', params.companyId)
-  return fetchApi<HoursByJobCodeReport>(`/reports/hours-by-job-code?${qs}`)
+  return fetchApi<HoursBySiteCodeReport>(`/reports/hours-by-job-code?${qs}`)
 }
 
 // Reset password with token

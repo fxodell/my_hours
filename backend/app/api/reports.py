@@ -344,7 +344,7 @@ async def hours_by_job_code(
     company_id: UUID | None = None,
 ):
     """
-    Report showing hours grouped by client and service type (as proxy for job code).
+    Report showing hours grouped by client, service type, and site code.
     """
     cid = resolve_company_id(current_user, company_id)
     query = (
@@ -374,8 +374,8 @@ async def hours_by_job_code(
     for entry in entries:
         client_name = entry.client.name if entry.client else "Unassigned"
         service_name = entry.service_type.name if entry.service_type else "General"
-        job_code = entry.job_code.code if entry.job_code else "N/A"
-        key = (client_name, service_name, job_code)
+        site_code = entry.job_code.code if entry.job_code else "N/A"
+        key = (client_name, service_name, site_code)
 
         if key not in grouped:
             grouped[key] = 0
@@ -385,14 +385,14 @@ async def hours_by_job_code(
         {
             "client": k[0],
             "service_type": k[1],
-            "job_code": k[2],
+            "site_code": k[2],
             "total_hours": v,
         }
         for k, v in sorted(grouped.items())
     ]
 
     if format == "json":
-        return {"report": "hours_by_job_code", "data": report_data}
+        return {"report": "hours_by_site_code", "data": report_data}
 
     df = pd.DataFrame(report_data)
 
@@ -403,17 +403,17 @@ async def hours_by_job_code(
         return StreamingResponse(
             output,
             media_type="text/csv",
-            headers={"Content-Disposition": "attachment; filename=hours_by_job_code.csv"},
+            headers={"Content-Disposition": "attachment; filename=hours_by_site_code.csv"},
         )
 
     if format == "excel":
         output = BytesIO()
-        df.to_excel(output, sheet_name="Hours by Job Code", index=False)
+        df.to_excel(output, sheet_name="Hours by Site Code", index=False)
         output.seek(0)
         return StreamingResponse(
             output,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": "attachment; filename=hours_by_job_code.xlsx"},
+            headers={"Content-Disposition": "attachment; filename=hours_by_site_code.xlsx"},
         )
 
     raise HTTPException(status_code=400, detail="Invalid format")
@@ -833,7 +833,7 @@ def _build_entry_row(entry: TimeEntry, ts: Timesheet, emp: Employee, pp: PayPeri
         "location": entry.location.site_name if entry.location else "Unassigned",
         "region": entry.location.region if entry.location and entry.location.region else "",
         "site_code": entry.job_code.code if entry.job_code else "",
-        "job_code_description": entry.job_code.description if entry.job_code else "",
+        "site_code_description": entry.job_code.description if entry.job_code else "",
         "service_type": entry.service_type.name if entry.service_type else "",
         "work_mode": entry.work_mode,
         "hours": float(entry.hours),
@@ -863,7 +863,7 @@ def _build_pto_row(pto: PTOEntry, ts: Timesheet, emp: Employee, pp: PayPeriod) -
         "location": "",
         "region": "",
         "site_code": "",
-        "job_code_description": "",
+        "site_code_description": "",
         "service_type": "",
         "work_mode": "",
         "hours": float(pto.hours),
@@ -988,7 +988,7 @@ async def _run_detail_report(
                 "location": location,
                 "region": region,
                 "site_code": site_code,
-                "job_code_description": job_code_description,
+                "site_code_description": job_code_description,
                 "service_type": service_type,
                 "work_mode": entry.work_mode,
                 "hours": 0.0,
@@ -1069,7 +1069,7 @@ async def _run_detail_report(
                     "location": "",
                     "region": "",
                     "site_code": "",
-                    "job_code_description": "",
+                    "site_code_description": "",
                     "service_type": "",
                     "work_mode": "",
                     "hours": 0.0,

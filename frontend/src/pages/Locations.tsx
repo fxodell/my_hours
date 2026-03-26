@@ -23,6 +23,7 @@ export default function Locations() {
   const { user } = useAuth()
   const queryClient = useQueryClient()
   const [selectedClientId, setSelectedClientId] = useState<string>('')
+  const [search, setSearch] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [editingLocation, setEditingLocation] = useState<Location | null>(null)
   const [expandedLocation, setExpandedLocation] = useState<string | null>(null)
@@ -119,7 +120,7 @@ export default function Locations() {
       queryClient.invalidateQueries({ queryKey: ['jobCodes', variables.locationId] })
     },
     onError: (err) => {
-      setError(err instanceof Error ? err.message : 'Failed to deactivate job code')
+      setError(err instanceof Error ? err.message : 'Failed to deactivate site code')
     },
   })
 
@@ -135,7 +136,7 @@ export default function Locations() {
       setJobCodeData({ code: '', description: '' })
     },
     onError: (err) => {
-      setError(err instanceof Error ? err.message : 'Failed to create job code')
+      setError(err instanceof Error ? err.message : 'Failed to create site code')
     },
   })
 
@@ -186,7 +187,7 @@ export default function Locations() {
     createJobCodeMutation.mutate({ locationId, data: jobCodeData })
   }
 
-  if (!user?.is_admin) {
+  if (!user?.is_admin && !user?.is_manager) {
     return (
       <div className="text-center py-12 text-gray-500">
         <p>You do not have permission to manage locations.</p>
@@ -215,6 +216,7 @@ export default function Locations() {
             setSelectedClientId(e.target.value)
             resetForm()
             setExpandedLocation(null)
+            setSearch('')
           }}
           className="input"
         >
@@ -226,6 +228,18 @@ export default function Locations() {
           ))}
         </select>
       </div>
+
+      {selectedClientId && locations && locations.length > 0 && (
+        <div>
+          <input
+            type="text"
+            className="input"
+            placeholder="Search by site name, region, or site code..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+      )}
 
       {!selectedClientId && (
         <p className="text-center py-8 text-gray-500">Select a client to manage its locations.</p>
@@ -336,18 +350,33 @@ export default function Locations() {
       )}
 
       {/* Location List */}
-      {selectedClientId && (
+      {selectedClientId && (() => {
+        const q = search.trim().toLowerCase()
+        const filteredLocations = q && locations
+          ? locations.filter((loc) => {
+              const haystack = [
+                loc.site_name,
+                loc.region || '',
+                loc.site_code || '',
+                ...(loc.job_codes?.map((j) => j.code) || []),
+              ].join(' ').toLowerCase()
+              return haystack.includes(q)
+            })
+          : locations
+        return (
         <div className="space-y-3">
           {isLoading ? (
             <div className="flex justify-center py-8">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
             </div>
-          ) : locations?.length === 0 ? (
+          ) : !filteredLocations?.length ? (
             <p className="text-center py-8 text-gray-500">
-              No locations for this client. Add one to get started.
+              {search ? `No locations match "${search}".` : 'No locations for this client. Add one to get started.'}
             </p>
           ) : (
-            locations?.map((loc) => (
+            <>
+            <p className="text-xs text-gray-400">{filteredLocations.length} location{filteredLocations.length !== 1 ? 's' : ''}{search ? ' matching' : ''}</p>
+            {filteredLocations.map((loc) => (
               <div
                 key={loc.id}
                 className={`card ${!loc.is_active ? 'opacity-60' : ''}`}
@@ -434,9 +463,9 @@ export default function Locations() {
                   )}
                 </div>
 
-                {/* Expanded Job Codes */}
+                {/* Expanded Site Codes */}
                 {expandedLocation === loc.id && (
-                  <JobCodeSection
+                  <SiteCodeSection
                     locationId={loc.id}
                     showForm={showJobCodeForm === loc.id}
                     onToggleForm={() => {
@@ -452,15 +481,17 @@ export default function Locations() {
                   />
                 )}
               </div>
-            ))
+            ))}
+            </>
           )}
         </div>
-      )}
+        )
+      })()}
     </div>
   )
 }
 
-function JobCodeSection({
+function SiteCodeSection({
   locationId,
   showForm,
   onToggleForm,
@@ -490,13 +521,13 @@ function JobCodeSection({
   return (
     <div className="border-t border-gray-200 px-4 py-3 bg-gray-50">
       <div className="flex items-center justify-between mb-2">
-        <p className="text-sm font-medium text-gray-700">Job Codes</p>
+        <p className="text-sm font-medium text-gray-700">Site Codes</p>
         {!showForm && (
           <button
             onClick={onToggleForm}
             className="text-xs text-primary-600 hover:text-primary-800 font-medium"
           >
-            + Add Job Code
+            + Add Site Code
           </button>
         )}
       </div>
@@ -545,7 +576,7 @@ function JobCodeSection({
       {isLoading ? (
         <p className="text-xs text-gray-400">Loading...</p>
       ) : jobCodes?.length === 0 ? (
-        <p className="text-xs text-gray-400">No job codes yet.</p>
+        <p className="text-xs text-gray-400">No site codes yet.</p>
       ) : (
         <div className="space-y-1">
           {jobCodes?.map((jc: JobCode) => (

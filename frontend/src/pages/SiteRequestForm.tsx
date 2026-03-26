@@ -81,7 +81,7 @@ export default function SiteRequestForm() {
         </div>
 
         <div>
-          <label className="label">AFE / Job Code</label>
+          <label className="label">AFE / Site Code</label>
           <input
             {...register('job_code')}
             className="input"
@@ -90,7 +90,7 @@ export default function SiteRequestForm() {
         </div>
 
         <div>
-          <label className="label">Job Code Description</label>
+          <label className="label">Site Code Description</label>
           <input
             {...register('job_code_description')}
             className="input"

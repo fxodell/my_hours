@@ -208,7 +208,7 @@ async def delete_job_code(
     if not job_code:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Job code not found",
+            detail="Site code not found",
         )
 
     # Soft delete - set inactive instead of removing
@@ -224,7 +224,7 @@ async def list_all_job_codes(
     client_id: UUID | None = None,
     active_only: bool = True,
 ) -> list[JobCode]:
-    """Get all job codes, optionally filtered by client."""
+    """Get all site codes, optionally filtered by client."""
     query = select(JobCode).join(Location).where(JobCode.company_id == current_user.company_id)
 
     if client_id:

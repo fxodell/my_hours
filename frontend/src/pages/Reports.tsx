@@ -11,7 +11,7 @@ import type {
   BiweeklyReport,
   DetailReport,
   HoursByEmployeeReport,
-  HoursByJobCodeReport,
+  HoursBySiteCodeReport,
 } from '../types/reports'
 
 // ---------- shared helpers ----------
@@ -228,7 +228,7 @@ function DetailPreview({ data }: { data: DetailReport }) {
       )}
       <table className="min-w-full" aria-label="Detail preview">
         <thead className="bg-gray-50 sticky top-0"><tr>
-          <Th>Date</Th><Th>Employee</Th><Th>Type</Th><Th>Client / PTO</Th><Th>Location</Th><Th>Service</Th><Th>Hours</Th><Th>Status</Th>
+          <Th>Date</Th><Th>Employee</Th><Th>Type</Th><Th>Client / PTO</Th><Th>Location</Th><Th>Site Code</Th><Th>Service</Th><Th>Hours</Th><Th>Status</Th>
         </tr></thead>
         <tbody className="divide-y divide-gray-100">
           {data.data.map((r, i) => (
@@ -238,6 +238,7 @@ function DetailPreview({ data }: { data: DetailReport }) {
               <Td>{r.entry_kind === 'pto' ? 'PTO' : 'Work'}</Td>
               <Td>{r.entry_kind === 'pto' ? r.pto_type : r.client}</Td>
               <Td>{r.location}</Td>
+              <Td>{r.entry_kind === 'work' ? (r.site_code ? `${r.site_code}${r.site_code_description ? ' – ' + r.site_code_description : ''}` : r.site_code_description || '') : ''}</Td>
               <Td>{r.service_type}</Td>
               <Td><Num v={r.hours} /></Td>
               <Td>{r.timesheet_status}</Td>
@@ -272,19 +273,19 @@ function HoursByEmployeePreview({ data }: { data: HoursByEmployeeReport }) {
   )
 }
 
-function HoursByJobCodePreview({ data }: { data: HoursByJobCodeReport }) {
+function HoursBySiteCodePreview({ data }: { data: HoursBySiteCodeReport }) {
   if (data.data.length === 0) return <EmptyState />
   const total = data.data.reduce((s, r) => s + r.total_hours, 0)
   return (
     <>
       <p className="text-xs text-gray-500 px-4 py-2">{data.data.length} group(s), {total.toFixed(1)} total hours</p>
-      <table className="min-w-full" aria-label="Hours by job code preview">
+      <table className="min-w-full" aria-label="Hours by site code preview">
         <thead className="bg-gray-50 sticky top-0"><tr>
-          <Th>Client</Th><Th>Service Type</Th><Th>Job Code</Th><Th>Hours</Th>
+          <Th>Client</Th><Th>Service Type</Th><Th>Site Code</Th><Th>Hours</Th>
         </tr></thead>
         <tbody className="divide-y divide-gray-100">
           {data.data.map((r, i) => (
-            <tr key={i}><Td>{r.client}</Td><Td>{r.service_type}</Td><Td>{r.job_code}</Td><Td><Num v={r.total_hours} /></Td></tr>
+            <tr key={i}><Td>{r.client}</Td><Td>{r.service_type}</Td><Td>{r.site_code}</Td><Td><Num v={r.total_hours} /></Td></tr>
           ))}
         </tbody>
         <tfoot className="bg-gray-50 font-semibold"><tr>
@@ -335,7 +336,7 @@ export default function Reports() {
   const [payrollPreviewEnabled, setPayrollPreviewEnabled] = useState(false)
   const [billingPreviewEnabled, setBillingPreviewEnabled] = useState(false)
 
-  // Hours by Employee / Job Code state
+  // Hours by Employee / Site Code state
   const [hbeStartDate, setHbeStartDate] = useState(format(subDays(new Date(), 30), 'yyyy-MM-dd'))
   const [hbeEndDate, setHbeEndDate] = useState(format(new Date(), 'yyyy-MM-dd'))
   const [hbePreviewEnabled, setHbePreviewEnabled] = useState(false)
@@ -409,7 +410,7 @@ export default function Reports() {
 
   const hbjcPreview = useQuery({
     queryKey: ['preview', 'hbjc', hbjcStartDate, hbjcEndDate, hbjcClientFilter, companyParam],
-    queryFn: () => api.previewHoursByJobCode({ startDate: hbjcStartDate, endDate: hbjcEndDate, clientId: hbjcClientFilter || undefined, companyId: companyParam }),
+    queryFn: () => api.previewHoursBySiteCode({ startDate: hbjcStartDate, endDate: hbjcEndDate, clientId: hbjcClientFilter || undefined, companyId: companyParam }),
     enabled: hbjcPreviewEnabled && !!hbjcStartDate && !!hbjcEndDate,
   })
 
@@ -487,14 +488,14 @@ export default function Reports() {
     finally { endDownload('hbe') }
   }
 
-  const downloadHoursByJobCode = async () => {
+  const downloadHoursBySiteCode = async () => {
     startDownload('hbjc')
     try {
-      const blob = await api.getHoursByJobCodeReport({
+      const blob = await api.getHoursBySiteCodeReport({
         startDate: hbjcStartDate, endDate: hbjcEndDate,
         clientId: hbjcClientFilter || undefined, companyId: companyParam,
       })
-      triggerDownload(blob, `hours-by-job-code-${hbjcStartDate}-to-${hbjcEndDate}.csv`)
+      triggerDownload(blob, `hours-by-site-code-${hbjcStartDate}-to-${hbjcEndDate}.csv`)
     } catch (err: any) { setError(err.message || 'Download failed') }
     finally { endDownload('hbjc') }
   }
@@ -753,11 +754,11 @@ export default function Reports() {
             )}
           </div>
 
-          {/* Hours by Job Code */}
+          {/* Hours by Site Code */}
           <div className="card p-4 space-y-4">
             <div>
-              <h3 className="font-semibold text-gray-900 text-lg">Hours by Job Code</h3>
-              <p className="text-sm text-gray-500">Approved hours grouped by client, service type, and job code</p>
+              <h3 className="font-semibold text-gray-900 text-lg">Hours by Site Code</h3>
+              <p className="text-sm text-gray-500">Approved hours grouped by client, service type, and site code</p>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div><label className="label">Start Date</label><input type="date" value={hbjcStartDate} onChange={e => setHbjcStartDate(e.target.value)} className="input" /></div>
@@ -772,12 +773,12 @@ export default function Reports() {
             </div>
             <div className="flex gap-2 flex-wrap">
               <ActionButton label="Preview" onClick={() => setHbjcPreviewEnabled(true)} disabled={!hbjcStartDate || !hbjcEndDate} loading={hbjcPreview.isFetching} icon={<PreviewIcon />} variant="secondary" />
-              <ActionButton label="Download CSV" onClick={downloadHoursByJobCode} disabled={!hbjcStartDate || !hbjcEndDate} loading={isDownloading('hbjc')} icon={<DownloadIcon />} />
+              <ActionButton label="Download CSV" onClick={downloadHoursBySiteCode} disabled={!hbjcStartDate || !hbjcEndDate} loading={isDownloading('hbjc')} icon={<DownloadIcon />} />
             </div>
             {hbjcPreviewEnabled && hbjcPreview.error && <p className="text-sm text-red-600">{hbjcPreview.error instanceof Error ? hbjcPreview.error.message : 'Preview failed'}</p>}
             {hbjcPreviewEnabled && hbjcPreview.data && (
-              <PreviewWrapper title="Hours by Job Code Preview" onClose={() => setHbjcPreviewEnabled(false)}>
-                <HoursByJobCodePreview data={hbjcPreview.data} />
+              <PreviewWrapper title="Hours by Site Code Preview" onClose={() => setHbjcPreviewEnabled(false)}>
+                <HoursBySiteCodePreview data={hbjcPreview.data} />
               </PreviewWrapper>
             )}
           </div>

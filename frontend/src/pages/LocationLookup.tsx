@@ -14,6 +14,7 @@ function locationLabel(loc: Location): string {
 
 export default function LocationLookup() {
   const [clientId, setClientId] = useState('')
+  const [search, setSearch] = useState('')
 
   const { data: clients } = useQuery({
     queryKey: ['clients'],
@@ -26,16 +27,24 @@ export default function LocationLookup() {
     enabled: !!clientId,
   })
 
-  const sorted = useMemo(() => {
+  const filtered = useMemo(() => {
     if (!locations?.length) return []
-    return [...locations].sort((a, b) => locationLabel(a).localeCompare(locationLabel(b)))
-  }, [locations])
+    const q = search.trim().toLowerCase()
+    const list = q
+      ? locations.filter((loc) => {
+          const label = locationLabel(loc).toLowerCase()
+          const codes = loc.job_codes?.map((j) => j.code.toLowerCase()).join(' ') || ''
+          return label.includes(q) || codes.includes(q)
+        })
+      : locations
+    return [...list].sort((a, b) => locationLabel(a).localeCompare(locationLabel(b)))
+  }, [locations, search])
 
   return (
     <div className="space-y-4">
       <h2 className="text-xl font-semibold text-gray-900">Location lookup</h2>
       <p className="text-sm text-gray-600">
-        Choose a client to browse locations, job codes, and open directions in Google Maps.
+        Choose a client to browse locations, site codes, and open directions in Google Maps.
       </p>
 
       <div>
@@ -43,7 +52,7 @@ export default function LocationLookup() {
         <select
           className="input"
           value={clientId}
-          onChange={(e) => setClientId(e.target.value)}
+          onChange={(e) => { setClientId(e.target.value); setSearch('') }}
         >
           <option value="">Select a client</option>
           {clients?.map((c) => (
@@ -53,6 +62,18 @@ export default function LocationLookup() {
           ))}
         </select>
       </div>
+
+      {clientId && locations && locations.length > 0 && (
+        <div>
+          <input
+            type="text"
+            className="input"
+            placeholder="Search by site name, region, or site code..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+      )}
 
       {!clientId && (
         <p className="text-sm text-gray-500">Select a client to load locations.</p>
@@ -64,13 +85,19 @@ export default function LocationLookup() {
         </div>
       )}
 
-      {clientId && !isLoading && sorted.length === 0 && (
+      {clientId && !isLoading && filtered.length === 0 && !search && (
         <p className="text-sm text-gray-500">No active locations for this client.</p>
       )}
 
-      {sorted.length > 0 && (
+      {clientId && !isLoading && filtered.length === 0 && search && (
+        <p className="text-sm text-gray-500">No locations match "{search}".</p>
+      )}
+
+      {filtered.length > 0 && (
+        <>
+        <p className="text-xs text-gray-400">{filtered.length} location{filtered.length !== 1 ? 's' : ''}{search ? ' matching' : ''}</p>
         <ul className="space-y-3">
-          {sorted.map((loc) => {
+          {filtered.map((loc) => {
             const lat = parseCoord(loc.latitude)
             const lng = parseCoord(loc.longitude)
             const mapsUrl =
@@ -91,11 +118,11 @@ export default function LocationLookup() {
                 )}
                 {codes && (
                   <p className="text-sm text-gray-700">
-                    Job codes: <span className="font-mono">{codes}</span>
+                    Site codes: <span className="font-mono">{codes}</span>
                   </p>
                 )}
                 {!codes && (
-                  <p className="text-xs text-gray-400">No job codes on file for this location.</p>
+                  <p className="text-xs text-gray-400">No site codes on file for this location.</p>
                 )}
                 {lat !== null && lng !== null && (
                   <p className="text-xs text-gray-500 font-mono">
@@ -132,6 +159,7 @@ export default function LocationLookup() {
             )
           })}
         </ul>
+        </>
       )}
     </div>
   )
