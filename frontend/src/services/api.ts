@@ -36,7 +36,13 @@ async function fetchApi<T>(
     }
 
     const error = await response.json().catch(() => ({ detail: 'An error occurred' }))
-    throw new ApiError(response.status, error.detail || 'An error occurred')
+    const detail = error.detail
+    const message = typeof detail === 'string'
+      ? detail
+      : Array.isArray(detail)
+        ? detail.map((d: any) => d.msg || JSON.stringify(d)).join('; ')
+        : 'An error occurred'
+    throw new ApiError(response.status, message)
   }
 
   if (response.status === 204) {

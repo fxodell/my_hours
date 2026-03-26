@@ -183,7 +183,7 @@ async def create_job_code(
             detail="Location not found",
         )
 
-    job_code = JobCode(company_id=current_user.company_id, location_id=location_id, **job_code_data.model_dump(exclude={"location_id"}))
+    job_code = JobCode(company_id=current_user.company_id, location_id=location_id, **job_code_data.model_dump())
     db.add(job_code)
     await db.commit()
     await db.refresh(job_code)

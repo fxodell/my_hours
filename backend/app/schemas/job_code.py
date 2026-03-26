@@ -13,8 +13,11 @@ class JobCodeBase(BaseSchema):
     is_active: bool = True
 
 
-class JobCodeCreate(JobCodeBase):
-    pass
+class JobCodeCreate(BaseSchema):
+    code: str
+    description: Optional[str] = None
+    quickbooks_class_id: Optional[str] = None
+    is_active: bool = True
 
 
 class JobCodeUpdate(BaseModel):
