@@ -1,10 +1,11 @@
 from uuid import UUID
 from fastapi import APIRouter, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, update, func
 from sqlalchemy.orm import selectinload
 
 from app.models.location import Location
 from app.models.job_code import JobCode
+from app.models.time_entry import TimeEntry
 from app.schemas.location import LocationCreate, LocationUpdate, LocationResponse, JobCodeBrief
 from app.schemas.job_code import JobCodeCreate, JobCodeUpdate, JobCodeResponse
 from app.api.deps import DB, CurrentUser, CurrentAdmin, resolve_company_id
@@ -187,6 +188,21 @@ async def create_job_code(
     db.add(job_code)
     await db.commit()
     await db.refresh(job_code)
+
+    # Auto-backfill: if this location now has exactly one active site code,
+    # set it on all time entries for this location that have no site code.
+    active_count = (await db.execute(
+        select(func.count()).select_from(JobCode)
+        .where(JobCode.location_id == location_id, JobCode.is_active == True)
+    )).scalar()
+    if active_count == 1:
+        await db.execute(
+            update(TimeEntry)
+            .where(TimeEntry.location_id == location_id, TimeEntry.job_code_id.is_(None))
+            .values(job_code_id=job_code.id)
+        )
+        await db.commit()
+
     return job_code
 
 
