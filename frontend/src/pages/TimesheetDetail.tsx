@@ -36,6 +36,7 @@ export default function TimesheetDetail() {
   const queryClient = useQueryClient()
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
   const [deletePTOConfirm, setDeletePTOConfirm] = useState<string | null>(null)
+  const [showSubmitConfirm, setShowSubmitConfirm] = useState(false)
 
   const { data: timesheet, isLoading } = useQuery({
     queryKey: ['timesheet', id],
@@ -77,15 +78,34 @@ export default function TimesheetDetail() {
     queryFn: () => api.getServiceTypes(),
   })
 
+  const { data: employees } = useQuery({
+    queryKey: ['employees'],
+    queryFn: () => api.getEmployees(),
+    enabled: !!(user?.is_manager || user?.is_admin),
+  })
+
   const clientMap = new Map(clients?.map((c) => [c.id, c]))
   const serviceTypeMap = new Map(serviceTypes?.map((st) => [st.id, st]))
+  const employeeMap = new Map(employees?.map((e) => [e.id, e]))
 
   const submitMutation = useMutation({
-    mutationFn: () => api.submitTimesheet(id!),
+    mutationFn: () => {
+      const submitAsManager = !!(
+        (user?.is_manager || user?.is_admin) &&
+        timesheet &&
+        user &&
+        timesheet.employee_id !== user.id
+      )
+      if (submitAsManager) {
+        return api.submitTimesheetOnBehalf(id!)
+      }
+      return api.submitTimesheet(id!)
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['timesheet', id] })
       queryClient.invalidateQueries({ queryKey: ['timesheets'] })
       queryClient.invalidateQueries({ queryKey: ['currentTimesheet'] })
+      setShowSubmitConfirm(false)
     },
   })
 
@@ -125,6 +145,8 @@ export default function TimesheetDetail() {
   const canEdit = isTimesheetEditable(timesheet?.status)
   const canSubmit = canEdit && ((entries?.length ?? 0) > 0 || (ptoEntries?.length ?? 0) > 0)
   const isManager = !!(user?.is_manager || user?.is_admin)
+  const isSubmittingOnBehalf = !!(isManager && timesheet && user && timesheet.employee_id !== user.id)
+  const submittedByName = timesheet?.submitted_by ? employeeMap.get(timesheet.submitted_by)?.full_name : null
 
   // Group entries by date
   const entriesByDate = entries?.reduce((acc, entry) => {
@@ -187,6 +209,15 @@ export default function TimesheetDetail() {
           {timesheet.status === 'submitted'
             ? 'This timesheet has been submitted and is pending approval.'
             : 'This timesheet has been approved and is read-only.'}
+        </div>
+      )}
+
+      {(timesheet.status === 'submitted' || timesheet.status === 'approved') && (
+        <div className="text-sm text-gray-600">
+          Submitted by{' '}
+          <span className="font-medium">
+            {submittedByName || (timesheet.submitted_by === timesheet.employee_id ? 'employee' : 'authorized manager/admin')}
+          </span>
         </div>
       )}
 
@@ -277,12 +308,49 @@ export default function TimesheetDetail() {
       </div>
       {canSubmit && (
         <button
-          onClick={() => submitMutation.mutate()}
+          onClick={() => {
+            if (isSubmittingOnBehalf) {
+              setShowSubmitConfirm(true)
+              return
+            }
+            submitMutation.mutate()
+          }}
           disabled={submitMutation.isPending}
           className="btn-success w-full"
         >
-          {submitMutation.isPending ? 'Submitting...' : 'Submit for Approval'}
+          {submitMutation.isPending
+            ? 'Submitting...'
+            : isSubmittingOnBehalf
+              ? 'Submit on Behalf of Employee'
+              : 'Submit for Approval'}
         </button>
+      )}
+
+      {showSubmitConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl p-6 w-full max-w-md">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Submit on Behalf</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              This will submit this employee timesheet for approval.
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowSubmitConfirm(false)}
+                className="btn-secondary flex-1"
+                disabled={submitMutation.isPending}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => submitMutation.mutate()}
+                disabled={submitMutation.isPending}
+                className="btn-success flex-1"
+              >
+                {submitMutation.isPending ? 'Submitting...' : 'Confirm Submit'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Entries by date */}

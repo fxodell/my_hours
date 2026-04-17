@@ -140,6 +140,18 @@ async def create_pay_period(
     db: DB,
     current_user: CurrentAdmin,
 ) -> PayPeriod:
+    duration = (pay_period_data.end_date - pay_period_data.start_date).days + 1
+    if duration != 7:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Pay period must be exactly 7 days (end_date - start_date = 6 days)",
+        )
+    if pay_period_data.start_date.weekday() != 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Pay period must start on a Monday",
+        )
+
     pay_period = PayPeriod(company_id=current_user.company_id, **pay_period_data.model_dump())
 
     try:
@@ -165,8 +177,8 @@ async def generate_pay_periods(
     period_group: str = "A",
 ) -> list[PayPeriod]:
     """
-    Generate weekly Mon-Sun pay periods starting from a date.
-    Start date must be a Monday. period_group defaults to 'A'.
+    Generate weekly (Mon-Sun) pay periods starting from a Monday.
+    period_group defaults to 'A'.
     """
     if start_date.weekday() != 0:  # 0 = Monday
         raise HTTPException(

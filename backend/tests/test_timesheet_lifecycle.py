@@ -46,17 +46,25 @@ async def seed(db_session: AsyncSession, _ctx: dict):
         hire_date=date(2024, 1, 1), pay_period_group="A",
         is_manager=True, is_active=True,
     )
+    admin = Employee(
+        company_id=company.id,
+        email="lifecycle-admin@test.com", password_hash=get_password_hash("pass"),
+        first_name="Lifecycle", last_name="Admin",
+        hire_date=date(2024, 1, 1), pay_period_group="A",
+        is_admin=True, is_active=True,
+    )
     other = Employee(
         company_id=company.id,
         email="lifecycle-other@test.com", password_hash=get_password_hash("pass"),
         first_name="Other", last_name="Employee",
         hire_date=date(2024, 1, 1), pay_period_group="A", is_active=True,
     )
-    db_session.add_all([emp, mgr, other])
+    db_session.add_all([emp, mgr, admin, other])
     await db_session.flush()
 
     ts = Timesheet(company_id=company.id, employee_id=emp.id, pay_period_id=pp.id, status="draft")
-    db_session.add(ts)
+    empty_ts = Timesheet(company_id=company.id, employee_id=other.id, pay_period_id=pp.id, status="draft")
+    db_session.add_all([ts, empty_ts])
     await db_session.flush()
 
     db_session.add(TimeEntry(
@@ -69,7 +77,9 @@ async def seed(db_session: AsyncSession, _ctx: dict):
         "ts_id": str(ts.id),
         "emp_headers": {"Authorization": f"Bearer {create_access_token(data={'sub': str(emp.id), 'email': emp.email})}"},
         "mgr_headers": {"Authorization": f"Bearer {create_access_token(data={'sub': str(mgr.id), 'email': mgr.email})}"},
+        "admin_headers": {"Authorization": f"Bearer {create_access_token(data={'sub': str(admin.id), 'email': admin.email})}"},
         "other_headers": {"Authorization": f"Bearer {create_access_token(data={'sub': str(other.id), 'email': other.email})}"},
+        "empty_ts_id": str(empty_ts.id),
     })
 
 
@@ -84,6 +94,7 @@ async def test_submit_draft(client: AsyncClient, _ctx: dict):
     )
     assert resp.status_code == 200
     assert resp.json()["status"] == "submitted"
+    assert resp.json()["submitted_by"] is not None
 
 
 @pytest.mark.asyncio
@@ -94,6 +105,50 @@ async def test_submit_not_owner(client: AsyncClient, _ctx: dict):
         headers=_ctx["other_headers"],
     )
     assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_submit_on_behalf_manager(client: AsyncClient, _ctx: dict):
+    """Manager can submit another employee timesheet."""
+    resp = await client.post(
+        f"/api/timesheets/{_ctx['ts_id']}/submit-on-behalf",
+        headers=_ctx["mgr_headers"],
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "submitted"
+    assert body["submitted_by"] is not None
+
+
+@pytest.mark.asyncio
+async def test_submit_on_behalf_admin(client: AsyncClient, _ctx: dict):
+    """Admin can submit another employee timesheet."""
+    resp = await client.post(
+        f"/api/timesheets/{_ctx['ts_id']}/submit-on-behalf",
+        headers=_ctx["admin_headers"],
+    )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "submitted"
+
+
+@pytest.mark.asyncio
+async def test_submit_on_behalf_requires_manager(client: AsyncClient, _ctx: dict):
+    """Regular employee cannot submit on behalf."""
+    resp = await client.post(
+        f"/api/timesheets/{_ctx['ts_id']}/submit-on-behalf",
+        headers=_ctx["other_headers"],
+    )
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_submit_on_behalf_empty_timesheet_fails(client: AsyncClient, _ctx: dict):
+    """Cannot submit empty timesheet even when manager submits on behalf."""
+    resp = await client.post(
+        f"/api/timesheets/{_ctx['empty_ts_id']}/submit-on-behalf",
+        headers=_ctx["mgr_headers"],
+    )
+    assert resp.status_code == 400
 
 
 @pytest.mark.asyncio

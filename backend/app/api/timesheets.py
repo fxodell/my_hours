@@ -22,6 +22,76 @@ from app.services.email import email_service
 router = APIRouter(prefix="/timesheets", tags=["timesheets"])
 
 
+async def _get_timesheet_total_hours(db: DB, timesheet_id: UUID) -> float:
+    time_hours_result = await db.execute(
+        select(func.coalesce(func.sum(TimeEntry.hours), 0)).where(TimeEntry.timesheet_id == timesheet_id)
+    )
+    pto_hours_result = await db.execute(
+        select(func.coalesce(func.sum(PTOEntry.hours), 0)).where(PTOEntry.timesheet_id == timesheet_id)
+    )
+    total_hours = float(time_hours_result.scalar() or 0) + float(pto_hours_result.scalar() or 0)
+    if total_hours <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot submit an empty timesheet",
+        )
+    return total_hours
+
+
+async def _submit_timesheet_with_actor(
+    db: DB,
+    timesheet: Timesheet,
+    pay_period: PayPeriod,
+    actor: Employee,
+    background_tasks: BackgroundTasks,
+) -> Timesheet:
+    if timesheet.status not in ("draft", "rejected"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot submit timesheet with status '{timesheet.status}'",
+        )
+
+    total_hours = await _get_timesheet_total_hours(db, timesheet.id)
+
+    timesheet.status = "submitted"
+    timesheet.submitted_at = datetime.now(timezone.utc)
+    timesheet.submitted_by = actor.id
+    # Clear rejection metadata when submitting.
+    timesheet.rejection_reason = None
+
+    await db.commit()
+    await db.refresh(timesheet)
+
+    # Send notification to managers (in background).
+    managers_result = await db.execute(
+        select(Employee)
+        .where(Employee.company_id == actor.company_id)
+        .where(Employee.is_manager == True)
+        .where(Employee.is_active == True)
+    )
+    managers = managers_result.scalars().all()
+
+    # Use the timesheet owner as submitter identity in manager notifications.
+    owner_result = await db.execute(select(Employee).where(Employee.id == timesheet.employee_id))
+    owner = owner_result.scalar_one_or_none()
+    submitter_email = owner.email if owner else actor.email
+    submitter_name = owner.full_name if owner else actor.full_name
+
+    pay_period_str = f"{pay_period.start_date} to {pay_period.end_date}"
+    for manager in managers:
+        background_tasks.add_task(
+            email_service.send_timesheet_submitted,
+            submitter_email,
+            submitter_name,
+            manager.email,
+            manager.full_name,
+            pay_period_str,
+            total_hours,
+        )
+
+    return timesheet
+
+
 @router.get("", response_model=list[TimesheetResponse])
 async def list_timesheets(
     db: DB,
@@ -138,19 +208,18 @@ async def get_current_timesheet(
 GRACE_PERIOD_DAYS = 7
 
 
-def _monday_of_week(d: date) -> date:
-    return d - timedelta(days=d.weekday())
-
-
-def _get_two_monday_sunday_weeks(start_date: date) -> list[tuple[date, date]]:
-    first_monday = _monday_of_week(start_date)
-    first_sunday = first_monday + timedelta(days=6)
-    second_monday = first_monday + timedelta(days=7)
-    second_sunday = second_monday + timedelta(days=6)
-    return [
-        (first_monday, first_sunday),
-        (second_monday, second_sunday),
-    ]
+def _get_billing_week_ranges(start_date: date, end_date: date) -> list[tuple[date, date]]:
+    duration = (end_date - start_date).days + 1
+    if duration == 7:
+        return [(start_date, end_date)]
+    elif duration == 14:
+        mid = start_date + timedelta(days=7)
+        return [
+            (start_date, mid - timedelta(days=1)),
+            (mid, end_date),
+        ]
+    else:
+        return [(start_date, end_date)]
 
 
 async def _ensure_billing_weeks(db: DB, timesheet: Timesheet, pay_period: PayPeriod) -> None:
@@ -163,7 +232,7 @@ async def _ensure_billing_weeks(db: DB, timesheet: Timesheet, pay_period: PayPer
     if existing:
         return
 
-    for week_start, week_end in _get_two_monday_sunday_weeks(pay_period.start_date):
+    for week_start, week_end in _get_billing_week_ranges(pay_period.start_date, pay_period.end_date):
         db.add(
             BillingWeek(
                 timesheet_id=timesheet.id,
@@ -405,51 +474,43 @@ async def submit_timesheet(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Can only submit your own timesheet",
         )
+    return await _submit_timesheet_with_actor(
+        db=db,
+        timesheet=timesheet,
+        pay_period=pay_period,
+        actor=current_user,
+        background_tasks=background_tasks,
+    )
 
-    if timesheet.status not in ("draft", "rejected"):
+
+@router.post("/{timesheet_id}/submit-on-behalf", response_model=TimesheetResponse)
+async def submit_timesheet_on_behalf(
+    timesheet_id: UUID,
+    db: DB,
+    current_user: CurrentManager,
+    background_tasks: BackgroundTasks,
+) -> Timesheet:
+    result = await db.execute(
+        select(Timesheet, PayPeriod)
+        .join(PayPeriod, Timesheet.pay_period_id == PayPeriod.id)
+        .where(Timesheet.id == timesheet_id)
+        .where(Timesheet.company_id == current_user.company_id)
+    )
+    row = result.one_or_none()
+    if not row:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot submit timesheet with status '{timesheet.status}'",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Timesheet not found",
         )
 
-    # Calculate total hours (work + PTO) for notifications
-    hours_result = await db.execute(
-        select(func.coalesce(func.sum(TimeEntry.hours), 0))
-        .where(TimeEntry.timesheet_id == timesheet_id)
+    timesheet, pay_period = row
+    return await _submit_timesheet_with_actor(
+        db=db,
+        timesheet=timesheet,
+        pay_period=pay_period,
+        actor=current_user,
+        background_tasks=background_tasks,
     )
-    pto_hours_result = await db.execute(
-        select(func.coalesce(func.sum(PTOEntry.hours), 0))
-        .where(PTOEntry.timesheet_id == timesheet_id)
-    )
-    total_hours = float(hours_result.scalar() or 0) + float(pto_hours_result.scalar() or 0)
-
-    timesheet.status = "submitted"
-    timesheet.submitted_at = datetime.now(timezone.utc)
-    # Clear rejection metadata when submitting.
-    timesheet.rejection_reason = None
-
-    await db.commit()
-    await db.refresh(timesheet)
-
-    # Send notification to managers (in background)
-    managers_result = await db.execute(
-        select(Employee).where(Employee.company_id == current_user.company_id).where(Employee.is_manager == True).where(Employee.is_active == True)
-    )
-    managers = managers_result.scalars().all()
-
-    pay_period_str = f"{pay_period.start_date} to {pay_period.end_date}"
-    for manager in managers:
-        background_tasks.add_task(
-            email_service.send_timesheet_submitted,
-            current_user.email,
-            current_user.full_name,
-            manager.email,
-            manager.full_name,
-            pay_period_str,
-            total_hours,
-        )
-
-    return timesheet
 
 
 @router.post("/{timesheet_id}/approve", response_model=TimesheetResponse)
@@ -1271,6 +1332,7 @@ async def reopen_timesheet(
 
     timesheet.status = "draft"
     timesheet.submitted_at = None
+    timesheet.submitted_by = None
     timesheet.approved_at = None
     timesheet.approved_by = None
     timesheet.rejection_reason = None

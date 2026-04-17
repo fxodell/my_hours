@@ -278,6 +278,12 @@ export async function submitTimesheet(id: string): Promise<Timesheet> {
   })
 }
 
+export async function submitTimesheetOnBehalf(id: string): Promise<Timesheet> {
+  return fetchApi<Timesheet>(`/timesheets/${id}/submit-on-behalf`, {
+    method: 'POST',
+  })
+}
+
 export async function approveTimesheet(id: string): Promise<Timesheet> {
   return fetchApi<Timesheet>(`/timesheets/${id}/approve`, {
     method: 'POST',
@@ -560,22 +566,6 @@ export async function getMyTimeDetailReport(params: {
   return fetchApiBlob(`/reports/my-time-detail?${qs}`)
 }
 
-export async function getBiweeklyPayrollReport(params: {
-  periodGroup: string
-  anchorStartDate: string
-  format?: string
-  companyId?: string
-}): Promise<Blob> {
-  const fmt = params.format || 'csv'
-  const qs = new URLSearchParams({
-    period_group: params.periodGroup,
-    anchor_start_date: params.anchorStartDate,
-    format: fmt,
-  })
-  if (params.companyId) qs.set('company_id', params.companyId)
-  return fetchApiBlob(`/reports/payroll-biweekly?${qs}`)
-}
-
 // Update PTO entry
 export async function updatePTOEntry(
   timesheetId: string,
@@ -665,7 +655,6 @@ export async function requestPasswordReset(email: string): Promise<{ message: st
 import type {
   PayrollReport,
   BillingReport,
-  BiweeklyReport,
   DetailReport,
   HoursByEmployeeReport,
   HoursBySiteCodeReport,
@@ -723,20 +712,6 @@ export async function previewBilling(startDate?: string, endDate?: string, compa
   if (endDate) qs.set('end_date', endDate)
   if (companyId) qs.set('company_id', companyId)
   return fetchApi<BillingReport>(`/reports/billing?${qs}`)
-}
-
-export async function previewBiweekly(params: {
-  periodGroup: string
-  anchorStartDate: string
-  companyId?: string
-}): Promise<BiweeklyReport> {
-  const qs = new URLSearchParams({
-    period_group: params.periodGroup,
-    anchor_start_date: params.anchorStartDate,
-    format: 'json',
-  })
-  if (params.companyId) qs.set('company_id', params.companyId)
-  return fetchApi<BiweeklyReport>(`/reports/payroll-biweekly?${qs}`)
 }
 
 export async function getHoursByEmployeeReport(startDate?: string, endDate?: string, companyId?: string, fmt = 'csv'): Promise<Blob> {

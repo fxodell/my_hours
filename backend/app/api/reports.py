@@ -548,256 +548,6 @@ async def engage_payroll_export(
     )
 
 
-def _timesheet_totals(ts: Timesheet) -> dict:
-    """Extract aggregate totals from a single timesheet (shared helper)."""
-    work_hours = sum(float(e.hours) for e in ts.time_entries)
-    pto_hours = sum(float(e.hours) for e in ts.pto_entries)
-    overtime_hours = sum(float(e.hours) for e in ts.time_entries if e.is_overtime)
-    regular_hours = work_hours - overtime_hours
-
-    pto_by_type: dict[str, float] = {}
-    for pto in ts.pto_entries:
-        pto_by_type[pto.pto_type] = pto_by_type.get(pto.pto_type, 0) + float(pto.hours)
-
-    return {
-        "regular_hours": regular_hours,
-        "overtime_hours": overtime_hours,
-        "total_work_hours": work_hours,
-        "personal_pto_hours": pto_by_type.get("personal", 0),
-        "sick_pto_hours": pto_by_type.get("sick", 0),
-        "holiday_hours": pto_by_type.get("holiday", 0),
-        "other_pto_hours": pto_by_type.get("other", 0),
-        "total_pto_hours": pto_hours,
-        "total_hours": work_hours + pto_hours,
-    }
-
-
-@router.get("/payroll-biweekly")
-async def payroll_biweekly_report(
-    db: DB,
-    current_user: CurrentManager,
-    period_group: str,
-    anchor_start_date: date,
-    format: str = "json",
-    company_id: UUID | None = None,
-):
-    """
-    Biweekly payroll rollup — one row per employee for two consecutive
-    weekly pay periods.
-
-    Parameters:
-        period_group: 'A' or 'B'
-        anchor_start_date: The Sunday starting the first of the two weekly periods.
-        format: json | csv | excel
-
-    The server loads exactly two consecutive periods for the given group
-    starting at anchor_start_date. Returns 400 if either period is missing
-    or they are not consecutive weeks.
-    """
-    cid = resolve_company_id(current_user, company_id)
-    if period_group not in ("A", "B"):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="period_group must be 'A' or 'B'",
-        )
-
-    # Load the two consecutive weekly periods for this group
-    result = await db.execute(
-        select(PayPeriod)
-        .where(PayPeriod.company_id == cid)
-        .where(PayPeriod.period_group == period_group)
-        .where(PayPeriod.start_date >= anchor_start_date)
-        .order_by(PayPeriod.start_date.asc())
-        .limit(2)
-    )
-    periods = list(result.scalars().all())
-
-    if len(periods) < 2:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Could not find two pay periods for the given group starting at anchor_start_date",
-        )
-
-    week1, week2 = periods[0], periods[1]
-
-    if week1.start_date != anchor_start_date:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"No pay period starts on {anchor_start_date} for group {period_group}",
-        )
-
-    # Validate consecutive: week2 should start the day after week1 ends
-    expected_week2_start = week1.end_date + timedelta(days=1)
-    if week2.start_date != expected_week2_start:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Periods are not consecutive: week 1 ends {week1.end_date}, week 2 starts {week2.start_date}",
-        )
-
-    biweekly_start = week1.start_date
-    biweekly_end = week2.end_date
-
-    # Build list of all 14 dates
-    num_days = (biweekly_end - biweekly_start).days + 1
-    all_dates = [biweekly_start + timedelta(days=i) for i in range(num_days)]
-    date_keys = [d.isoformat() for d in all_dates]
-
-    # Load approved timesheets for both periods, filtered to matching group employees
-    period_ids = [week1.id, week2.id]
-    result = await db.execute(
-        select(Timesheet)
-        .where(Timesheet.company_id == cid)
-        .where(Timesheet.pay_period_id.in_(period_ids))
-        .where(Timesheet.status == "approved")
-        .options(
-            selectinload(Timesheet.employee),
-            selectinload(Timesheet.pay_period),
-            selectinload(Timesheet.time_entries),
-            selectinload(Timesheet.pto_entries),
-        )
-    )
-    all_timesheets = result.unique().scalars().all()
-
-    # Filter to employees whose pay_period_group matches; track warnings
-    data_quality_warnings: list[str] = []
-    timesheets = []
-    for ts in all_timesheets:
-        if not ts.employee:
-            continue
-        if ts.employee.pay_period_group != period_group:
-            data_quality_warnings.append(
-                f"Excluded timesheet {ts.id} for {ts.employee.full_name} "
-                f"(employee group {ts.employee.pay_period_group} != report group {period_group})"
-            )
-            continue
-        timesheets.append(ts)
-
-    # Group timesheets by employee
-    by_employee: dict[str, list[Timesheet]] = {}
-    for ts in timesheets:
-        eid = str(ts.employee_id)
-        by_employee.setdefault(eid, []).append(ts)
-
-    # Build report rows
-    report_data = []
-    for eid, emp_timesheets in by_employee.items():
-        emp = emp_timesheets[0].employee
-
-        # Aggregate totals across both weeks
-        agg = {
-            "regular_hours": 0.0,
-            "overtime_hours": 0.0,
-            "total_work_hours": 0.0,
-            "personal_pto_hours": 0.0,
-            "sick_pto_hours": 0.0,
-            "holiday_hours": 0.0,
-            "other_pto_hours": 0.0,
-            "total_pto_hours": 0.0,
-            "total_hours": 0.0,
-        }
-        for ts in emp_timesheets:
-            totals = _timesheet_totals(ts)
-            for k in agg:
-                agg[k] += totals[k]
-
-        # Build per-day hours (work + PTO combined)
-        hours_by_date: dict[str, float] = {dk: 0.0 for dk in date_keys}
-        for ts in emp_timesheets:
-            for entry in ts.time_entries:
-                dk = entry.work_date.isoformat()
-                if dk in hours_by_date:
-                    hours_by_date[dk] += float(entry.hours)
-            for pto in ts.pto_entries:
-                dk = pto.pto_date.isoformat()
-                if dk in hours_by_date:
-                    hours_by_date[dk] += float(pto.hours)
-
-        period_total_hours = sum(hours_by_date.values())
-
-        # Determine which weeks are present
-        week_ids = {str(ts.pay_period_id) for ts in emp_timesheets}
-        weeks_count = len(week_ids)
-        missing_weeks = []
-        if str(week1.id) not in week_ids:
-            missing_weeks.append(1)
-        if str(week2.id) not in week_ids:
-            missing_weeks.append(2)
-
-        row = {
-            "employee_id": eid,
-            "employee_name": emp.full_name,
-            "employee_email": emp.email,
-            "engage_id": emp.engage_employee_id or "",
-            "period_group": period_group,
-            "biweekly_start": biweekly_start.isoformat(),
-            "biweekly_end": biweekly_end.isoformat(),
-            "week_1_pay_period_id": str(week1.id),
-            "week_2_pay_period_id": str(week2.id),
-            "weeks_count": weeks_count,
-            "missing_weeks": missing_weeks,
-            **agg,
-            "period_total_hours": period_total_hours,
-            "hours_by_date": hours_by_date,
-        }
-        report_data.append(row)
-
-    # Sort by employee name
-    report_data.sort(key=lambda r: r["employee_name"])
-
-    if format == "json":
-        resp = {
-            "report": "payroll_biweekly",
-            "period_group": period_group,
-            "biweekly_start": biweekly_start.isoformat(),
-            "biweekly_end": biweekly_end.isoformat(),
-            "week_1_pay_period_id": str(week1.id),
-            "week_2_pay_period_id": str(week2.id),
-            "data": report_data,
-        }
-        if data_quality_warnings:
-            resp["data_quality_warnings"] = data_quality_warnings
-        return resp
-
-    # Flatten hours_by_date into columns for CSV/Excel
-    flat_rows = []
-    for row in report_data:
-        flat = {k: v for k, v in row.items() if k not in ("hours_by_date", "missing_weeks")}
-        flat["missing_weeks"] = ",".join(str(w) for w in row["missing_weeks"]) if row["missing_weeks"] else ""
-        for dk in date_keys:
-            flat[dk] = row["hours_by_date"][dk]
-        flat_rows.append(flat)
-
-    df = pd.DataFrame(flat_rows)
-
-    if format == "csv":
-        output = BytesIO()
-        df.to_csv(output, index=False)
-        output.seek(0)
-        filename = f"payroll_biweekly_{period_group}_{biweekly_start}_{biweekly_end}.csv"
-        return StreamingResponse(
-            output,
-            media_type="text/csv",
-            headers={"Content-Disposition": f"attachment; filename={filename}"},
-        )
-
-    if format == "excel":
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            df.to_excel(writer, sheet_name="Biweekly Payroll", index=False)
-        output.seek(0)
-        filename = f"payroll_biweekly_{period_group}_{biweekly_start}_{biweekly_end}.xlsx"
-        return StreamingResponse(
-            output,
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f"attachment; filename={filename}"},
-        )
-
-    raise HTTPException(
-        status_code=status.HTTP_400_BAD_REQUEST,
-        detail="Invalid format. Use json, csv, or excel.",
-    )
-
-
 # ---------------------------------------------------------------------------
 # Shared helper for employee-detail and my-time-detail reports
 # ---------------------------------------------------------------------------
@@ -880,6 +630,86 @@ def _build_pto_row(pto: PTOEntry, ts: Timesheet, emp: Employee, pp: PayPeriod) -
         "pay_period_end": pp.end_date.isoformat(),
         "period_group": pp.period_group,
     }
+
+
+def _insert_subtotal_rows(
+    rows: list[dict],
+    daily_totals: dict[str, dict[str, float]],
+    weekly_totals: dict[str, dict[str, float]],
+) -> list[dict]:
+    """Insert daily-total and weekly-total rows into sorted detail rows for CSV/Excel."""
+    if not rows:
+        return rows
+
+    # Determine all column keys from the first row for blank fill.
+    all_keys = list(rows[0].keys())
+
+    def _blank_row(label: str, hours: float, employee_name: str = "") -> dict:
+        r = {k: "" for k in all_keys}
+        r["entry_kind"] = label
+        r["hours"] = round(hours, 2)
+        r["employee_name"] = employee_name
+        return r
+
+    result: list[dict] = []
+    prev_eid: str | None = None
+    prev_date: str | None = None
+    prev_week: str | None = None
+
+    for row in rows:
+        eid = row["employee_id"]
+        d = row["work_date"]
+        dt = date.fromisoformat(d)
+        iso_year, iso_week, _ = dt.isocalendar()
+        wk = f"{iso_year}-W{iso_week:02d}"
+
+        # Detect employee change — flush previous employee's last day/week.
+        if prev_eid is not None and eid != prev_eid:
+            if prev_date and prev_eid in daily_totals:
+                result.append(_blank_row(
+                    f"Daily Total ({prev_date})",
+                    daily_totals[prev_eid].get(prev_date, 0),
+                ))
+            if prev_week and prev_eid in weekly_totals:
+                result.append(_blank_row(
+                    f"Weekly Total ({prev_week})",
+                    weekly_totals[prev_eid].get(prev_week, 0),
+                ))
+            prev_date = None
+            prev_week = None
+
+        # Detect date change within same employee — emit daily total.
+        if prev_eid == eid and prev_date is not None and d != prev_date:
+            result.append(_blank_row(
+                f"Daily Total ({prev_date})",
+                daily_totals[eid].get(prev_date, 0),
+            ))
+
+        # Detect week change within same employee — emit weekly total.
+        if prev_eid == eid and prev_week is not None and wk != prev_week:
+            result.append(_blank_row(
+                f"Weekly Total ({prev_week})",
+                weekly_totals[eid].get(prev_week, 0),
+            ))
+
+        result.append(row)
+        prev_eid = eid
+        prev_date = d
+        prev_week = wk
+
+    # Flush final day/week.
+    if prev_date and prev_eid and prev_eid in daily_totals:
+        result.append(_blank_row(
+            f"Daily Total ({prev_date})",
+            daily_totals[prev_eid].get(prev_date, 0),
+        ))
+    if prev_week and prev_eid and prev_eid in weekly_totals:
+        result.append(_blank_row(
+            f"Weekly Total ({prev_week})",
+            weekly_totals[prev_eid].get(prev_week, 0),
+        ))
+
+    return result
 
 
 async def _run_detail_report(
@@ -1163,6 +993,24 @@ async def _run_detail_report(
         "total_hours": sum(s["total_hours"] for s in summary_list),
     }
 
+    # Build daily and weekly totals keyed by (employee_id, date/week).
+    # daily_totals: { employee_id: { "YYYY-MM-DD": hours } }
+    # weekly_totals: { employee_id: { "YYYY-WNN": hours } }
+    daily_totals: dict[str, dict[str, float]] = {}
+    weekly_totals: dict[str, dict[str, float]] = {}
+    for r in rows:
+        eid = r["employee_id"]
+        d = r["work_date"]  # already ISO string
+        h = float(r["hours"])
+        daily_totals.setdefault(eid, {})
+        daily_totals[eid][d] = daily_totals[eid].get(d, 0.0) + h
+        # ISO week key: parse date and get isocalendar week
+        dt = date.fromisoformat(d)
+        iso_year, iso_week, _ = dt.isocalendar()
+        wk = f"{iso_year}-W{iso_week:02d}"
+        weekly_totals.setdefault(eid, {})
+        weekly_totals[eid][wk] = weekly_totals[eid].get(wk, 0.0) + h
+
     if format_param == "json":
         return {
             "report": "employee_detail",
@@ -1171,10 +1019,14 @@ async def _run_detail_report(
             "row_count": len(rows),
             "summary": summary_list,
             "grand_total": grand_total,
+            "daily_totals": daily_totals,
+            "weekly_totals": weekly_totals,
             "data": rows,
         }
 
-    df = pd.DataFrame(rows) if rows else pd.DataFrame()
+    # For CSV/Excel, insert subtotal rows into the data.
+    export_rows = _insert_subtotal_rows(rows, daily_totals, weekly_totals)
+    df = pd.DataFrame(export_rows) if export_rows else pd.DataFrame()
 
     if format_param == "csv":
         output = BytesIO()

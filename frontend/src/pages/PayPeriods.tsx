@@ -213,7 +213,7 @@ export default function PayPeriods() {
         <div className="card p-4">
           <h3 className="font-semibold text-gray-900 mb-4">Generate Pay Periods</h3>
           <p className="text-sm text-gray-500 mb-4">
-            Creates weekly Mon-Sun pay periods. Start date must be a Monday.
+            Creates weekly pay periods. Start date must be a Sunday or Monday.
           </p>
 
           {error && (
@@ -225,7 +225,7 @@ export default function PayPeriods() {
           <form onSubmit={handleGenerate} className="space-y-4">
             <div className="grid grid-cols-3 gap-4">
               <div>
-                <label className="label">Start Date (must be Monday)</label>
+                <label className="label">Start Date (Sunday or Monday)</label>
                 <input
                   type="date"
                   value={generateData.start_date}

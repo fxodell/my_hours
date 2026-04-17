@@ -180,6 +180,14 @@ export default function Timesheets() {
                       <p className="text-sm text-gray-500">
                         Updated {format(parseISO(timesheet.updated_at), 'MMM d, h:mm a')}
                       </p>
+                      {(timesheet.status === 'submitted' || timesheet.status === 'approved') && (
+                        <p className="text-xs text-gray-500">
+                          Submitted by{' '}
+                          {timesheet.submitted_by
+                            ? employees?.find((e) => e.id === timesheet.submitted_by)?.full_name || 'authorized manager/admin'
+                            : 'employee'}
+                        </p>
+                      )}
                     </div>
                   </Link>
                   <div className="flex items-center gap-2 ml-3">

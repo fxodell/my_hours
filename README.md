@@ -10,7 +10,7 @@ Employee timesheet management system with a FastAPI backend and React PWA fronte
 - Role-based access (`employee`, `manager`, `admin`)
 - Payroll, billing, and Engage export reports
 - Password change and reset-token flows
-- Staggered bi-weekly pay periods (Group A / Group B)
+- Weekly Mon-Sun pay periods (Group A / Group B)
 
 ## Tech Stack
 

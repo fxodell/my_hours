@@ -115,6 +115,11 @@ export default function Approvals() {
                           ? `${format(parseISO(payPeriod.start_date), 'MMM d')} - ${format(parseISO(payPeriod.end_date), 'MMM d')}`
                           : 'Unknown Period'}
                       </p>
+                      {timesheet.submitted_by && (
+                        <p className="text-xs text-gray-500">
+                          Submitted by {employeeMap.get(timesheet.submitted_by)?.full_name || 'authorized manager/admin'}
+                        </p>
+                      )}
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="text-sm text-gray-500">

@@ -101,7 +101,7 @@ All fixtures are function-scoped: each test gets a fresh in-memory SQLite databa
 ### Core Entities
 - **Company** - Tenant entity with `name`, `slug` (unique), `is_active`; all business entities have `company_id` FK
 - **Employee** - Users with `pay_period_group` (A or B), roles (`is_manager`, `is_admin`, `is_super_admin`), `company_id`
-- **PayPeriod** - Bi-weekly periods, grouped by A/B for staggered schedules
+- **PayPeriod** - Weekly Mon-Sun periods, grouped by A/B (legacy field retained for staggered workflows)
 - **Timesheet** - One per employee per pay period (draft -> submitted -> approved/rejected)
 - **TimeEntry** - Hours worked: client, location, job code, service type, work mode
 - **PTOEntry** - PTO hours (personal, sick, holiday, other)
@@ -118,8 +118,8 @@ Client -> Location -> JobCode (hierarchical). TimeEntry references client, locat
 
 Backend enforces editability: time entry and PTO entry create/update/delete endpoints reject mutations when timesheet status is not `draft` or `rejected`. Both time entry and PTO entry dates are validated against pay period bounds.
 
-### Pay Period Staggering
-Group A and Group B employees are on alternating 2-week cycles, spreading payroll processing across weeks. Pay period endpoints and timesheet creation enforce group matching — employees can only see and create timesheets in their assigned group's periods.
+### Pay Period Groups
+All pay periods are 7-day Mon-Sun weeks. Employees are assigned to Group A or Group B (historical designation from the prior biweekly cadence). Pay period endpoints and timesheet creation enforce group matching — employees can only see and create timesheets in their assigned group's periods.
 
 ## Required Reading
 
@@ -191,7 +191,6 @@ Frontend enforces via `ProtectedRoute`, `ManagerRoute`, `AdminRoute`, `SuperAdmi
 
 ### Reports (Manager only)
 - `GET /api/reports/payroll?format=csv` - Payroll export (one row per weekly timesheet)
-- `GET /api/reports/payroll-biweekly?period_group=A&anchor_start_date=2026-03-15&format=csv` - Biweekly payroll rollup (one row per employee for two consecutive weeks; per-day hours + aggregate totals; JSON/CSV/Excel)
 - `GET /api/reports/employee-detail?employee_id=<uuid>&start_date=2026-03-01&end_date=2026-03-31&format=csv` - Line-level detail for one or many employees (manager only; use `employee_ids=uuid1,uuid2` for multiple; filters: `timesheet_status`, `pay_period_status`, `include_pto`)
 - `GET /api/reports/my-time-detail?start_date=2026-03-01&end_date=2026-03-31&format=csv` - Self-service export of own entries (any authenticated user; same filters as employee-detail minus employee selection)
 - `GET /api/reports/billing?format=csv` - Billing by client

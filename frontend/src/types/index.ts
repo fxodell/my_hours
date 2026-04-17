@@ -79,6 +79,7 @@ export interface Timesheet {
   pay_period_id: string
   status: 'draft' | 'submitted' | 'approved' | 'rejected'
   submitted_at: string | null
+  submitted_by: string | null
   approved_at: string | null
   approved_by: string | null
   rejection_reason: string | null

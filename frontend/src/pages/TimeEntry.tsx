@@ -156,18 +156,21 @@ export default function TimeEntry() {
     enabled: !timesheetParam,
   })
 
-  // Filter to only current periods (containing today)
+  // Use all recent periods returned by API (already filtered with grace window)
   const today = format(new Date(), 'yyyy-MM-dd')
-  const currentPeriods = recentPeriods?.filter(
-    (pp) => pp.start_date <= today && pp.end_date >= today
-  )
+  const availablePeriods = recentPeriods
+    ?.slice()
+    .sort((a, b) => b.start_date.localeCompare(a.start_date))
 
-  // Auto-select the current period
+  // Auto-select the period containing today, or the most recent one
   useEffect(() => {
-    if (currentPeriods && currentPeriods.length > 0 && !selectedPeriodId) {
-      setSelectedPeriodId(currentPeriods[0].id)
+    if (availablePeriods && availablePeriods.length > 0 && !selectedPeriodId) {
+      const currentPeriod = availablePeriods.find(
+        (pp) => pp.start_date <= today && pp.end_date >= today
+      )
+      setSelectedPeriodId(currentPeriod?.id ?? availablePeriods[0].id)
     }
-  }, [currentPeriods, selectedPeriodId])
+  }, [availablePeriods, selectedPeriodId])
 
   // When a specific timesheet is passed, use it directly; otherwise use period-based lookup
   const { data: timesheet } = useQuery({
@@ -378,15 +381,11 @@ export default function TimeEntry() {
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
         {/* Pay Period Selector */}
-        {!timesheetParam && currentPeriods && currentPeriods.length > 1 && (
+        {!timesheetParam && availablePeriods && availablePeriods.length > 1 && (
           <div>
             <label className="label">Pay Period</label>
             <div className="grid grid-cols-1 gap-2">
-              {currentPeriods
-                .slice()
-                .sort((a, b) => b.start_date.localeCompare(a.start_date))
-                .map((pp) => {
-                  const today = format(new Date(), 'yyyy-MM-dd')
+              {availablePeriods.map((pp) => {
                   const isCurrentPeriod = pp.start_date <= today && pp.end_date >= today
                   const isClosed = pp.status === 'closed'
                   const graceDaysLeft = isClosed ? 7 - differenceInCalendarDays(new Date(), parseISO(pp.end_date)) : 0

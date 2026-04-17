@@ -35,6 +35,7 @@ class TimesheetResponse(TimesheetBase, TimestampSchema):
     id: UUID
     status: str
     submitted_at: Optional[datetime] = None
+    submitted_by: Optional[UUID] = None
     approved_at: Optional[datetime] = None
     approved_by: Optional[UUID] = None
     rejection_reason: Optional[str] = None

@@ -154,9 +154,9 @@ export default function App() {
         <Route
           path="locations"
           element={
-            <AdminRoute>
+            <ManagerRoute>
               <LocationsPage />
-            </AdminRoute>
+            </ManagerRoute>
           }
         />
         <Route

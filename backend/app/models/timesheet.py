@@ -44,6 +44,10 @@ class Timesheet(Base, UUIDMixin, TimestampMixin):
     status: Mapped[str] = mapped_column(String(20), default="draft", nullable=False)
 
     submitted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    submitted_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("employees.id"),
+    )
     approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     approved_by: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),

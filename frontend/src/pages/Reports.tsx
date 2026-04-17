@@ -8,7 +8,6 @@ import CompanySelector from '../components/CompanySelector'
 import type {
   PayrollReport,
   BillingReport,
-  BiweeklyReport,
   DetailReport,
   HoursByEmployeeReport,
   HoursBySiteCodeReport,
@@ -59,8 +58,8 @@ function triggerDownload(blob: Blob, filename: string) {
 function Th({ children }: { children: React.ReactNode }) {
   return <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">{children}</th>
 }
-function Td({ children, className = '' }: { children: React.ReactNode; className?: string }) {
-  return <td className={`px-3 py-2 text-sm text-gray-700 whitespace-nowrap ${className}`}>{children}</td>
+function Td({ children, className = '', colSpan }: { children: React.ReactNode; className?: string; colSpan?: number }) {
+  return <td colSpan={colSpan} className={`px-3 py-2 text-sm text-gray-700 whitespace-nowrap ${className}`}>{children}</td>
 }
 function Num({ v }: { v: number }) {
   return <span className="tabular-nums">{v.toFixed(1)}</span>
@@ -164,46 +163,78 @@ function BillingPreview({ data }: { data: BillingReport }) {
   )
 }
 
-function BiweeklyPreview({ data }: { data: BiweeklyReport }) {
-  if (data.data.length === 0) return <EmptyState />
-  const dates = data.data.length > 0
-    ? Object.keys(data.data[0].hours_by_date).sort()
-    : []
-  return (
-    <>
-      {data.data_quality_warnings && data.data_quality_warnings.length > 0 && (
-        <div className="bg-yellow-50 border-b border-yellow-200 px-4 py-2 text-xs text-yellow-800">
-          {data.data_quality_warnings.map((w, i) => <p key={i}>{w}</p>)}
-        </div>
-      )}
-      <p className="text-xs text-gray-500 px-4 py-2">
-        {data.data.length} employee(s) &middot; {data.biweekly_start} to {data.biweekly_end}
-      </p>
-      <table className="min-w-full" aria-label="Biweekly payroll preview">
-        <thead className="bg-gray-50 sticky top-0"><tr>
-          <Th>Employee</Th>
-          {dates.map(d => <Th key={d}>{d.slice(5)}</Th>)}
-          <Th>Reg</Th><Th>OT</Th><Th>PTO</Th><Th>Total</Th>
-        </tr></thead>
-        <tbody className="divide-y divide-gray-100">
-          {data.data.map((r, i) => (
-            <tr key={i}>
-              <Td>{r.employee_name}</Td>
-              {dates.map(d => <Td key={d}>{r.hours_by_date[d] ? <Num v={r.hours_by_date[d]} /> : <span className="text-gray-300">-</span>}</Td>)}
-              <Td><Num v={r.regular_hours} /></Td>
-              <Td><Num v={r.overtime_hours} /></Td>
-              <Td><Num v={r.total_pto_hours} /></Td>
-              <Td className="font-semibold"><Num v={r.total_hours} /></Td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </>
-  )
+function getISOWeekKey(dateStr: string): string {
+  const d = new Date(dateStr + 'T00:00:00')
+  // ISO week: Monday-based. Use local methods consistently to avoid timezone mismatches.
+  const tmp = new Date(d.getTime())
+  tmp.setDate(tmp.getDate() + 4 - (tmp.getDay() || 7))
+  const yearStart = new Date(tmp.getFullYear(), 0, 1)
+  const weekNo = Math.ceil(((tmp.getTime() - yearStart.getTime()) / 86400000 + 1) / 7)
+  return `${tmp.getFullYear()}-W${String(weekNo).padStart(2, '0')}`
+}
+
+type DisplayRow =
+  | { kind: 'data'; row: import('../types/reports').DetailRow }
+  | { kind: 'daily_total'; date: string; hours: number }
+  | { kind: 'weekly_total'; week: string; hours: number }
+
+function buildDisplayRows(data: DetailReport): DisplayRow[] {
+  const rows = data.data
+  const daily = data.daily_totals ?? {}
+  const weekly = data.weekly_totals ?? {}
+  const result: DisplayRow[] = []
+
+  let prevEid: string | null = null
+  let prevDate: string | null = null
+  let prevWeek: string | null = null
+
+  for (const row of rows) {
+    const eid = row.employee_id
+    const d = row.work_date
+    const wk = getISOWeekKey(d)
+
+    // Employee changed — flush previous day/week
+    if (prevEid !== null && eid !== prevEid) {
+      if (prevDate && daily[prevEid]?.[prevDate] != null) {
+        result.push({ kind: 'daily_total', date: prevDate, hours: daily[prevEid][prevDate] })
+      }
+      if (prevWeek && weekly[prevEid]?.[prevWeek] != null) {
+        result.push({ kind: 'weekly_total', week: prevWeek, hours: weekly[prevEid][prevWeek] })
+      }
+      prevDate = null
+      prevWeek = null
+    }
+
+    // Date changed within same employee
+    if (prevEid === eid && prevDate !== null && d !== prevDate) {
+      result.push({ kind: 'daily_total', date: prevDate, hours: daily[eid]?.[prevDate] ?? 0 })
+    }
+
+    // Week changed within same employee
+    if (prevEid === eid && prevWeek !== null && wk !== prevWeek) {
+      result.push({ kind: 'weekly_total', week: prevWeek, hours: weekly[eid]?.[prevWeek] ?? 0 })
+    }
+
+    result.push({ kind: 'data', row })
+    prevEid = eid
+    prevDate = d
+    prevWeek = wk
+  }
+
+  // Flush final day/week
+  if (prevDate && prevEid && daily[prevEid]?.[prevDate] != null) {
+    result.push({ kind: 'daily_total', date: prevDate, hours: daily[prevEid][prevDate] })
+  }
+  if (prevWeek && prevEid && weekly[prevEid]?.[prevWeek] != null) {
+    result.push({ kind: 'weekly_total', week: prevWeek, hours: weekly[prevEid][prevWeek] })
+  }
+
+  return result
 }
 
 function DetailPreview({ data }: { data: DetailReport }) {
   if (data.data.length === 0) return <EmptyState />
+  const displayRows = buildDisplayRows(data)
   return (
     <>
       <div className="px-4 py-2 text-xs text-gray-500 flex gap-4 flex-wrap">
@@ -231,19 +262,40 @@ function DetailPreview({ data }: { data: DetailReport }) {
           <Th>Date</Th><Th>Employee</Th><Th>Type</Th><Th>Client / PTO</Th><Th>Location</Th><Th>Site Code</Th><Th>Service</Th><Th>Hours</Th><Th>Status</Th>
         </tr></thead>
         <tbody className="divide-y divide-gray-100">
-          {data.data.map((r, i) => (
-            <tr key={i} className={r.entry_kind === 'pto' ? 'bg-blue-50/40' : ''}>
-              <Td>{r.work_date}</Td>
-              <Td>{r.employee_name}</Td>
-              <Td>{r.entry_kind === 'pto' ? 'PTO' : 'Work'}</Td>
-              <Td>{r.entry_kind === 'pto' ? r.pto_type : r.client}</Td>
-              <Td>{r.location}</Td>
-              <Td>{r.entry_kind === 'work' ? (r.site_code ? `${r.site_code}${r.site_code_description ? ' – ' + r.site_code_description : ''}` : r.site_code_description || '') : ''}</Td>
-              <Td>{r.service_type}</Td>
-              <Td><Num v={r.hours} /></Td>
-              <Td>{r.timesheet_status}</Td>
-            </tr>
-          ))}
+          {displayRows.map((item, i) => {
+            if (item.kind === 'daily_total') {
+              return (
+                <tr key={`dt-${i}`} className="bg-gray-100 font-semibold text-sm">
+                  <Td colSpan={7} className="text-right">Daily Total ({item.date})</Td>
+                  <Td><Num v={item.hours} /></Td>
+                  <Td>{'\u00A0'}</Td>
+                </tr>
+              )
+            }
+            if (item.kind === 'weekly_total') {
+              return (
+                <tr key={`wt-${i}`} className="bg-gray-200 font-bold text-sm">
+                  <Td colSpan={7} className="text-right">Weekly Total ({item.week})</Td>
+                  <Td><Num v={item.hours} /></Td>
+                  <Td>{'\u00A0'}</Td>
+                </tr>
+              )
+            }
+            const r = item.row
+            return (
+              <tr key={i} className={r.entry_kind === 'pto' ? 'bg-blue-50/40' : ''}>
+                <Td>{r.work_date}</Td>
+                <Td>{r.employee_name}</Td>
+                <Td>{r.entry_kind === 'pto' ? 'PTO' : 'Work'}</Td>
+                <Td>{r.entry_kind === 'pto' ? r.pto_type : r.client}</Td>
+                <Td>{r.location}</Td>
+                <Td>{r.entry_kind === 'work' ? (r.site_code ? `${r.site_code}${r.site_code_description ? ' – ' + r.site_code_description : ''}` : r.site_code_description || '') : ''}</Td>
+                <Td>{r.service_type}</Td>
+                <Td><Num v={r.hours} /></Td>
+                <Td>{r.timesheet_status}</Td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </>
@@ -325,12 +377,6 @@ export default function Reports() {
   const [detailIncludePto, setDetailIncludePto] = useState(true)
   const [detailPreviewEnabled, setDetailPreviewEnabled] = useState(false)
 
-  // Biweekly
-  const [biweeklyGroup, setBiweeklyGroup] = useState('A')
-  const [biweeklyAnchor, setBiweeklyAnchor] = useState('')
-  const [biweeklyFormat, setBiweeklyFormat] = useState('csv')
-  const [biweeklyPreviewEnabled, setBiweeklyPreviewEnabled] = useState(false)
-
   // Pay period reports
   const [selectedPayPeriod, setSelectedPayPeriod] = useState<string>('')
   const [payrollPreviewEnabled, setPayrollPreviewEnabled] = useState(false)
@@ -360,8 +406,6 @@ export default function Reports() {
     queryFn: () => api.getClients(companyParam),
     enabled: isManager ?? false,
   })
-  const groupPeriods = payPeriods?.filter(pp => pp.period_group === biweeklyGroup) || []
-
   // === Preview queries (on-demand) ===
   const myTimePreview = useQuery({
     queryKey: ['preview', 'my-time', myStartDate, myEndDate, myStatus, myPayPeriodStatus, myIncludePto],
@@ -381,12 +425,6 @@ export default function Reports() {
       payPeriodStatus: detailPayPeriodStatus, includePto: detailIncludePto, companyId: companyParam,
     }),
     enabled: detailPreviewEnabled && selectedEmployees.length > 0 && !!detailStartDate && !!detailEndDate,
-  })
-
-  const biweeklyPreview = useQuery({
-    queryKey: ['preview', 'biweekly', biweeklyGroup, biweeklyAnchor, companyParam],
-    queryFn: () => api.previewBiweekly({ periodGroup: biweeklyGroup, anchorStartDate: biweeklyAnchor, companyId: companyParam }),
-    enabled: biweeklyPreviewEnabled && !!biweeklyAnchor,
   })
 
   const payrollPreview = useQuery({
@@ -464,19 +502,6 @@ export default function Reports() {
       triggerDownload(blob, `employee-detail-${detailStartDate}-to-${detailEndDate}.${detailFormat === 'excel' ? 'xlsx' : detailFormat}`)
     } catch (err: any) { setError(err.message || 'Download failed') }
     finally { endDownload('employee-detail') }
-  }
-
-  const downloadBiweekly = async () => {
-    if (!biweeklyAnchor) return
-    startDownload('biweekly')
-    try {
-      const blob = await api.getBiweeklyPayrollReport({
-        periodGroup: biweeklyGroup, anchorStartDate: biweeklyAnchor,
-        format: biweeklyFormat, companyId: companyParam,
-      })
-      triggerDownload(blob, `biweekly-payroll-${biweeklyGroup}-${biweeklyAnchor}.${biweeklyFormat === 'excel' ? 'xlsx' : biweeklyFormat}`)
-    } catch (err: any) { setError(err.message || 'Download failed') }
-    finally { endDownload('biweekly') }
   }
 
   const downloadHoursByEmployee = async () => {
@@ -625,46 +650,6 @@ export default function Reports() {
             {detailPreviewEnabled && detailPreview.data && (
               <PreviewWrapper title="Employee Detail Preview" onClose={() => setDetailPreviewEnabled(false)}>
                 <DetailPreview data={detailPreview.data} />
-              </PreviewWrapper>
-            )}
-          </div>
-
-          {/* Biweekly */}
-          <div className="card p-4 space-y-4">
-            <div>
-              <h3 className="font-semibold text-gray-900 text-lg">Biweekly Payroll Rollup</h3>
-              <p className="text-sm text-gray-500">One row per employee with daily hours for two consecutive pay periods (approved only)</p>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div><label className="label">Pay Group</label>
-                <select value={biweeklyGroup} onChange={e => { setBiweeklyGroup(e.target.value); setBiweeklyAnchor(''); setBiweeklyPreviewEnabled(false) }} className="input">
-                  <option value="A">Group A</option><option value="B">Group B</option>
-                </select>
-              </div>
-              <div><label className="label">Starting Period</label>
-                <select value={biweeklyAnchor} onChange={e => { setBiweeklyAnchor(e.target.value); setBiweeklyPreviewEnabled(false) }} className="input">
-                  <option value="">Choose period...</option>
-                  {groupPeriods.map(pp => (
-                    <option key={pp.id} value={pp.start_date}>
-                      {format(parseISO(pp.start_date), 'MMM d')} – {format(parseISO(pp.end_date), 'MMM d, yyyy')}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            <div><label className="label">Format</label>
-              <select value={biweeklyFormat} onChange={e => setBiweeklyFormat(e.target.value)} className="input">
-                <option value="csv">CSV</option><option value="excel">Excel</option>
-              </select>
-            </div>
-            <div className="flex gap-2 flex-wrap">
-              <ActionButton label="Preview" onClick={() => setBiweeklyPreviewEnabled(true)} disabled={!biweeklyAnchor} loading={biweeklyPreview.isFetching} icon={<PreviewIcon />} variant="secondary" />
-              <ActionButton label={`Download ${biweeklyFormat.toUpperCase()}`} onClick={downloadBiweekly} disabled={!biweeklyAnchor} loading={isDownloading('biweekly')} icon={<DownloadIcon />} />
-            </div>
-            {biweeklyPreviewEnabled && biweeklyPreview.error && <p className="text-sm text-red-600">{biweeklyPreview.error instanceof Error ? biweeklyPreview.error.message : 'Preview failed'}</p>}
-            {biweeklyPreviewEnabled && biweeklyPreview.data && (
-              <PreviewWrapper title="Biweekly Rollup Preview" onClose={() => setBiweeklyPreviewEnabled(false)}>
-                <BiweeklyPreview data={biweeklyPreview.data} />
               </PreviewWrapper>
             )}
           </div>

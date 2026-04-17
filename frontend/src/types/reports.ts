@@ -43,41 +43,6 @@ export interface BillingReport {
   data: BillingRow[]
 }
 
-// === Biweekly Payroll Report ===
-export interface BiweeklyRow {
-  employee_id: string
-  employee_name: string
-  employee_email: string
-  engage_id: string | null
-  period_group: string
-  biweekly_start: string
-  biweekly_end: string
-  weeks_count: number
-  missing_weeks: number[]
-  regular_hours: number
-  overtime_hours: number
-  total_work_hours: number
-  personal_pto_hours: number
-  sick_pto_hours: number
-  holiday_hours: number
-  other_pto_hours: number
-  total_pto_hours: number
-  total_hours: number
-  period_total_hours: number
-  hours_by_date: Record<string, number>
-}
-
-export interface BiweeklyReport {
-  report: 'payroll_biweekly'
-  period_group: string
-  biweekly_start: string
-  biweekly_end: string
-  week_1_pay_period_id: string
-  week_2_pay_period_id: string
-  data: BiweeklyRow[]
-  data_quality_warnings?: string[]
-}
-
 // === Detail Report (employee-detail and my-time-detail) ===
 export interface DetailRow {
   entry_kind: 'work' | 'pto'
@@ -125,6 +90,10 @@ export interface DetailReport {
     total_pto_hours: number
     total_hours: number
   }
+  /** Per-employee daily hour totals: { employee_id: { "YYYY-MM-DD": hours } } */
+  daily_totals?: Record<string, Record<string, number>>
+  /** Per-employee weekly hour totals: { employee_id: { "YYYY-WNN": hours } } */
+  weekly_totals?: Record<string, Record<string, number>>
   data: DetailRow[]
 }
 
