@@ -1,0 +1,10 @@
+# MyHours daily PostgreSQL backup -- runs as root at 02:15 server time.
+# Health audit at 02:45 verifies the backup ran and dumps are healthy.
+# Managed by /opt/myhours/scripts/; see /opt/myhours/docs/BACKUP_RESTORE.md.
+# Installed by /opt/myhours/scripts/install-backup-cron.sh -- do not edit
+# /etc/cron.d/myhours-backup directly; edit this file in the repo and redeploy.
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+15 2 * * * root /opt/myhours/scripts/backup-db.sh >> /opt/myhours/backups/cron.log 2>&1
+45 2 * * * root /opt/myhours/scripts/check-backup-health.sh >> /opt/myhours/backups/cron.log 2>&1
