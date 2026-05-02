@@ -151,6 +151,12 @@ Stop services:
 make docker-down
 ```
 
+## Operations
+
+### Database Backups
+
+Production runs a nightly `pg_dump` at 02:15 server time, gzipped to `/opt/myhours/backups/` with 90-day retention, plus a 02:45 health audit. The cron schedule is version-controlled at `scripts/cron/myhours-backup` and re-installed automatically by `scripts/production-restart-backend.sh` on every deploy. To check the latest verdict: `sudo cat /opt/myhours/backups/health-status`. Restore steps and full operational details: [docs/BACKUP_RESTORE.md](docs/BACKUP_RESTORE.md).
+
 ## Environment Variables (Backend)
 
 | Variable | Description |

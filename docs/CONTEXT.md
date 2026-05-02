@@ -48,6 +48,7 @@ The backend uses two SQLAlchemy engines from `backend/app/core/database.py`:
 - Local development through `make` targets (`dev`, `dev-frontend`, `dev-all`)
 - Local Docker Compose stack (`db`, `backend`, `frontend`)
 - Production deployment details are partially documented in project guidance and should be consolidated over time
+- Production database backup: nightly `pg_dump` at 02:15 with 90-day retention and a 02:45 health audit, scheduled via `/etc/cron.d/myhours-backup`. The cron file is version-controlled at `scripts/cron/myhours-backup`, installed by `scripts/install-backup-cron.sh`, and auto-synced by `scripts/production-restart-backend.sh` on every deploy. Restore runbook: `docs/BACKUP_RESTORE.md`
 
 ## Key Directories
 

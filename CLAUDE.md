@@ -225,6 +225,13 @@ Standard REST pattern for each resource — `GET` (list), `GET /{id}`, `POST`, `
 - Backend `.env` from `.env.example`; migrations: `docker compose exec backend alembic upgrade head`
 - Import locations: `docker compose exec backend python scripts/import_locations.py` (requires `/data` volume with Excel file)
 
+### Database Backups (Production)
+- Nightly `pg_dump` at 02:15 (script: `scripts/backup-db.sh`); gzipped to `/opt/myhours/backups/`, 90-day retention
+- Health audit at 02:45 (script: `scripts/check-backup-health.sh`) checks 14-day coverage, freshness, log errors, cron presence, and gzip integrity; one-line verdict in `/opt/myhours/backups/health-status`
+- Cron schedule is version-controlled at `scripts/cron/myhours-backup` and idempotently installed by `scripts/install-backup-cron.sh`; `scripts/production-restart-backend.sh` calls the installer first on every deploy, so a fresh VM or accidental drift gets corrected automatically
+- Restore runbook with both destructive and scratch-DB restore paths: `docs/BACKUP_RESTORE.md`
+- Backups live on the same VM as the database — they protect against accidental deletes, bad migrations, and corruption, **not** VM loss. Adding offsite copies to GCS (`gs://nfm_hotwire/`) is a planned follow-up; the VM service account currently has only `devstorage.read_only` scope.
+
 ## Known Issues
 
 - Email notifications are logged in dev mode rather than sent via SMTP
