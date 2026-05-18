@@ -68,24 +68,38 @@ export default function TimesheetDetail() {
     enabled: !!id,
   })
 
+  const lookupCompanyId = timesheet?.company_id
+
   const { data: clients } = useQuery({
-    queryKey: ['clients'],
-    queryFn: () => api.getClients(),
+    queryKey: ['clients', lookupCompanyId],
+    queryFn: () => api.getClients(lookupCompanyId),
+    enabled: !!lookupCompanyId,
   })
 
   const { data: serviceTypes } = useQuery({
-    queryKey: ['serviceTypes'],
-    queryFn: () => api.getServiceTypes(),
+    queryKey: ['serviceTypes', lookupCompanyId],
+    queryFn: () => api.getServiceTypes(lookupCompanyId),
+    enabled: !!lookupCompanyId,
+  })
+
+  const { data: locations } = useQuery({
+    queryKey: ['locations', 'all', lookupCompanyId],
+    queryFn: () => api.getAllLocations(undefined, lookupCompanyId),
+    enabled: !!lookupCompanyId,
   })
 
   const { data: employees } = useQuery({
-    queryKey: ['employees'],
-    queryFn: () => api.getEmployees(),
-    enabled: !!(user?.is_manager || user?.is_admin),
+    queryKey: ['employees', lookupCompanyId],
+    queryFn: () => api.getEmployees(lookupCompanyId),
+    enabled: !!lookupCompanyId && !!(user?.is_manager || user?.is_admin),
   })
 
   const clientMap = new Map(clients?.map((c) => [c.id, c]))
   const serviceTypeMap = new Map(serviceTypes?.map((st) => [st.id, st]))
+  const locationMap = new Map(locations?.map((l) => [l.id, l]))
+  const jobCodeMap = new Map(
+    locations?.flatMap((l) => (l.job_codes ?? []).map((jc) => [jc.id, jc] as const))
+  )
   const employeeMap = new Map(employees?.map((e) => [e.id, e]))
 
   const submitMutation = useMutation({
@@ -403,6 +417,21 @@ export default function TimesheetDetail() {
                             {' • '}
                             {entry.work_mode === 'remote' ? 'Remote' : 'On-Site'}
                           </p>
+                          {(entry.location_id || entry.job_code_id) && (
+                            <p className="text-sm text-gray-500 mt-0.5">
+                              {entry.location_id && (() => {
+                                const loc = locationMap.get(entry.location_id)
+                                if (!loc) return null
+                                return `${loc.site_code ? `[${loc.site_code}] ` : ''}${loc.region ? `${loc.region} - ` : ''}${loc.site_name}`
+                              })()}
+                              {entry.location_id && entry.job_code_id && ' • '}
+                              {entry.job_code_id && (
+                                <span className="font-mono">
+                                  {jobCodeMap.get(entry.job_code_id)?.code}
+                                </span>
+                              )}
+                            </p>
+                          )}
                           {entry.description && (
                             <p className="text-sm text-gray-600 mt-1 line-clamp-2">
                               {entry.description}

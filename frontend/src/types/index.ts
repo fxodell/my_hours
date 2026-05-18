@@ -75,6 +75,7 @@ export interface PayPeriod {
 
 export interface Timesheet {
   id: string
+  company_id: string
   employee_id: string
   pay_period_id: string
   status: 'draft' | 'submitted' | 'approved' | 'rejected'

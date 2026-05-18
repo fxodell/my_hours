@@ -439,9 +439,10 @@ export async function getLocations(clientId?: string): Promise<Location[]> {
   return fetchApi<Location[]>(`/locations${params}`)
 }
 
-export async function getAllLocations(clientId?: string): Promise<Location[]> {
+export async function getAllLocations(clientId?: string, companyId?: string): Promise<Location[]> {
   const params = new URLSearchParams({ active_only: 'false' })
   if (clientId) params.append('client_id', clientId)
+  if (companyId) params.append('company_id', companyId)
   return fetchApi<Location[]>(`/locations?${params.toString()}`)
 }
 

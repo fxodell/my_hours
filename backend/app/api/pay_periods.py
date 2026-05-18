@@ -120,9 +120,10 @@ async def get_pay_period(
     db: DB,
     current_user: CurrentUser,
 ) -> PayPeriod:
-    result = await db.execute(
-        select(PayPeriod).where(PayPeriod.id == pay_period_id, PayPeriod.company_id == current_user.company_id)
-    )
+    query = select(PayPeriod).where(PayPeriod.id == pay_period_id)
+    if not current_user.is_super_admin:
+        query = query.where(PayPeriod.company_id == current_user.company_id)
+    result = await db.execute(query)
     pay_period = result.scalar_one_or_none()
 
     if not pay_period:

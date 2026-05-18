@@ -33,6 +33,7 @@ class TimesheetReject(BaseModel):
 
 class TimesheetResponse(TimesheetBase, TimestampSchema):
     id: UUID
+    company_id: UUID
     status: str
     submitted_at: Optional[datetime] = None
     submitted_by: Optional[UUID] = None

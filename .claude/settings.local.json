@@ -28,7 +28,9 @@
       "Bash(make dev-frontend:*)",
       "Bash(ls:*)",
       "Read(//var/www/html/**)",
-      "Read(//opt/myhours/**)"
+      "Read(//opt/myhours/**)",
+      "Bash(gcloud compute:*)",
+      "Bash(source backend/.venv/bin/activate)"
     ]
   }
 }

@@ -356,15 +356,17 @@ async def get_timesheet(
     db: DB,
     current_user: CurrentUser,
 ) -> Timesheet:
-    result = await db.execute(
+    query = (
         select(Timesheet)
         .where(Timesheet.id == timesheet_id)
-        .where(Timesheet.company_id == current_user.company_id)
         .options(
             selectinload(Timesheet.time_entries),
             selectinload(Timesheet.pto_entries),
         )
     )
+    if not current_user.is_super_admin:
+        query = query.where(Timesheet.company_id == current_user.company_id)
+    result = await db.execute(query)
     timesheet = result.scalar_one_or_none()
 
     if not timesheet:
@@ -621,12 +623,14 @@ async def list_billing_weeks(
     db: DB,
     current_user: CurrentUser,
 ) -> list[BillingWeek]:
-    result = await db.execute(
+    query = (
         select(Timesheet, PayPeriod)
         .join(PayPeriod, Timesheet.pay_period_id == PayPeriod.id)
         .where(Timesheet.id == timesheet_id)
-        .where(Timesheet.company_id == current_user.company_id)
     )
+    if not current_user.is_super_admin:
+        query = query.where(Timesheet.company_id == current_user.company_id)
+    result = await db.execute(query)
     row = result.one_or_none()
     if not row:
         raise HTTPException(
@@ -776,12 +780,14 @@ async def list_time_entries(
     current_user: CurrentUser,
 ) -> list[TimeEntry]:
     # Verify access to timesheet and get pay period for date filtering
-    result = await db.execute(
+    query = (
         select(Timesheet, PayPeriod)
         .join(PayPeriod, Timesheet.pay_period_id == PayPeriod.id)
         .where(Timesheet.id == timesheet_id)
-        .where(Timesheet.company_id == current_user.company_id)
     )
+    if not current_user.is_super_admin:
+        query = query.where(Timesheet.company_id == current_user.company_id)
+    result = await db.execute(query)
     row = result.one_or_none()
 
     if not row:
@@ -1047,12 +1053,14 @@ async def list_pto_entries(
     current_user: CurrentUser,
 ) -> list[PTOEntry]:
     # Verify access to timesheet and get pay period for date filtering
-    result = await db.execute(
+    query = (
         select(Timesheet, PayPeriod)
         .join(PayPeriod, Timesheet.pay_period_id == PayPeriod.id)
         .where(Timesheet.id == timesheet_id)
-        .where(Timesheet.company_id == current_user.company_id)
     )
+    if not current_user.is_super_admin:
+        query = query.where(Timesheet.company_id == current_user.company_id)
+    result = await db.execute(query)
     row = result.one_or_none()
 
     if not row:
