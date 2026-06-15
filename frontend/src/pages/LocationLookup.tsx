@@ -111,11 +111,12 @@ export default function LocationLookup() {
                 className="bg-white rounded-xl border border-gray-200 p-4 space-y-2"
               >
                 <div className="font-medium text-gray-900">{locationLabel(loc)}</div>
-                {loc.site_code && (
-                  <p className="text-xs text-gray-500">
-                    Site code: <span className="font-mono">{loc.site_code}</span>
-                  </p>
-                )}
+                {loc.site_code &&
+                  !loc.job_codes?.some((j) => j.code === loc.site_code) && (
+                    <p className="text-xs text-gray-500">
+                      Site code: <span className="font-mono">{loc.site_code}</span>
+                    </p>
+                  )}
                 {codes && (
                   <p className="text-sm text-gray-700">
                     Site codes: <span className="font-mono">{codes}</span>

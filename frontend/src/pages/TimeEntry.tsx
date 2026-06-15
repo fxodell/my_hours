@@ -271,6 +271,14 @@ export default function TimeEntry() {
     setValue('job_code_id', '')
   }, [selectedLocationId, setValue])
 
+  // Auto-select the site code when the location has exactly one
+  const currentJobCodeId = watch('job_code_id')
+  useEffect(() => {
+    if (siteCodes && siteCodes.length === 1 && !currentJobCodeId) {
+      setValue('job_code_id', siteCodes[0].id)
+    }
+  }, [siteCodes, currentJobCodeId, setValue])
+
   const createEntryMutation = useMutation({
     mutationFn: (data: TimeEntryCreate) =>
       api.createTimeEntry(timesheet!.id, data),
@@ -633,12 +641,15 @@ export default function TimeEntry() {
 
             {selectedLocationDetail && (
               <div className="mt-2 text-sm space-y-1 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
-                {selectedLocationDetail.site_code && (
-                  <p>
-                    <span className="text-gray-500">Site code:</span>{' '}
-                    <span className="font-mono">{selectedLocationDetail.site_code}</span>
-                  </p>
-                )}
+                {selectedLocationDetail.site_code &&
+                  !selectedLocationDetail.job_codes?.some(
+                    (j) => j.code === selectedLocationDetail.site_code
+                  ) && (
+                    <p>
+                      <span className="text-gray-500">Site code:</span>{' '}
+                      <span className="font-mono">{selectedLocationDetail.site_code}</span>
+                    </p>
+                  )}
                 {selectedLocationDetail.job_codes && selectedLocationDetail.job_codes.length > 0 && (
                   <p>
                     <span className="text-gray-500">Site codes:</span>{' '}
