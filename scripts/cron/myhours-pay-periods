@@ -1,0 +1,9 @@
+# MyHours pay period auto-generation -- runs as root daily at 06:15 server time.
+# Ensures groups A and B have open weekly periods through the next 8 weeks.
+# Managed by /opt/myhours/scripts/; installed by install-pay-period-cron.sh.
+# Do not edit /etc/cron.d/myhours-pay-periods directly; edit this file in the
+# repo and redeploy (production-restart-backend.sh re-syncs cron entries).
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+15 6 * * * root /opt/myhours/scripts/generate-pay-periods.sh

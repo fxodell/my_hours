@@ -229,6 +229,7 @@ Standard REST pattern for each resource — `GET` (list), `GET /{id}`, `POST`, `
 - Nightly `pg_dump` at 02:15 (script: `scripts/backup-db.sh`); gzipped to `/opt/myhours/backups/`, 90-day retention
 - Health audit at 02:45 (script: `scripts/check-backup-health.sh`) checks 14-day coverage, freshness, log errors, cron presence, and gzip integrity; one-line verdict in `/opt/myhours/backups/health-status`
 - Cron schedule is version-controlled at `scripts/cron/myhours-backup` and idempotently installed by `scripts/install-backup-cron.sh`; `scripts/production-restart-backend.sh` calls the installer first on every deploy, so a fresh VM or accidental drift gets corrected automatically
+- Pay periods are auto-generated daily at 06:15 via `scripts/cron/myhours-pay-periods` (installer: `scripts/install-pay-period-cron.sh`); log: `/opt/myhours/logs/pay-periods-cron.log`
 - Restore runbook with both destructive and scratch-DB restore paths: `docs/BACKUP_RESTORE.md`
 - Backups live on the same VM as the database — they protect against accidental deletes, bad migrations, and corruption, **not** VM loss. Adding offsite copies to GCS (`gs://nfm_hotwire/`) is a planned follow-up; the VM service account currently has only `devstorage.read_only` scope.
 

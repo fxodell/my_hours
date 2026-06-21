@@ -9,6 +9,9 @@ cd "$(dirname "$0")/.."
 echo "Syncing backup cron..."
 sudo "$(dirname "$0")/install-backup-cron.sh"
 
+echo "Syncing pay period cron..."
+sudo "$(dirname "$0")/install-pay-period-cron.sh"
+
 echo "Restarting backend..."
 docker compose restart backend
 echo "Done. Backend is using the latest code (e.g. timesheet list: pay period desc, then employee name)."
