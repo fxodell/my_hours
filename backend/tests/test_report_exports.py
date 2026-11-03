@@ -4,6 +4,7 @@ import pytest
 import pytest_asyncio
 from datetime import date
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.company import Company
@@ -13,6 +14,7 @@ from app.models.time_entry import TimeEntry
 from app.models.pto_entry import PTOEntry
 from app.models.employee import Employee
 from app.models.client import Client
+from app.models.location import Location
 from app.models.service_type import ServiceType
 from app.core.security import get_password_hash, create_access_token
 
@@ -185,6 +187,63 @@ async def test_employee_detail_csv(client: AsyncClient, _ctx: dict):
     assert resp.status_code == 200
     assert "text/csv" in resp.headers["content-type"]
     assert "Export Employee" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_employee_detail_falls_back_to_location_site_code(
+    client: AsyncClient, db_session: AsyncSession, _ctx: dict
+):
+    """Exports should use Location.site_code when the entry has no JobCode."""
+    emp = (
+        await db_session.execute(select(Employee).where(Employee.email == "export-emp@test.com"))
+    ).scalar_one()
+    company_id = emp.company_id
+    cl = (
+        await db_session.execute(select(Client).where(Client.company_id == company_id))
+    ).scalar_one()
+    ts = (
+        await db_session.execute(select(Timesheet).where(Timesheet.employee_id == emp.id))
+    ).scalar_one()
+
+    loc = Location(
+        company_id=company_id,
+        client_id=cl.id,
+        region="Permian",
+        site_name="RICHMOND W 4239 STATE CTB",
+        site_code="CF762104",
+        is_active=True,
+    )
+    db_session.add(loc)
+    await db_session.flush()
+    db_session.add(
+        TimeEntry(
+            timesheet_id=ts.id,
+            work_date=date(2026, 5, 7),
+            client_id=cl.id,
+            location_id=loc.id,
+            job_code_id=None,
+            hours=4,
+            work_mode="on_site",
+            is_overtime=False,
+            is_billable=True,
+            description="BNB site with location.site_code only",
+        )
+    )
+    await db_session.commit()
+
+    resp = await client.get(
+        "/api/reports/employee-detail",
+        params={
+            "start_date": "2026-05-01",
+            "end_date": "2026-05-31",
+            "employee_id": _ctx["emp_id"],
+            "format": "csv",
+        },
+        headers=_ctx["mgr_headers"],
+    )
+    assert resp.status_code == 200
+    assert "CF762104" in resp.text
+    assert "RICHMOND W 4239 STATE CTB" in resp.text
 
 
 @pytest.mark.asyncio

@@ -19,6 +19,26 @@ from app.api.deps import DB, CurrentUser, CurrentManager, resolve_company_id
 router = APIRouter(prefix="/reports", tags=["reports"])
 
 
+def _resolve_site_code(entry: TimeEntry, *, missing: str = "") -> str:
+    """Prefer the entry's linked JobCode; fall back to Location.site_code.
+
+    Many BNB locations store the AFE/site code on Location.site_code without a
+    JobCode row (or without job_code_id on the time entry). Exports must still
+    show that code so site names and site codes stay aligned.
+    """
+    if entry.job_code and entry.job_code.code:
+        return entry.job_code.code
+    if entry.location and entry.location.site_code:
+        return entry.location.site_code
+    return missing
+
+
+def _resolve_site_code_description(entry: TimeEntry) -> str:
+    if entry.job_code and entry.job_code.description:
+        return entry.job_code.description
+    return ""
+
+
 @router.get("/payroll")
 async def payroll_report(
     db: DB,
@@ -180,7 +200,7 @@ async def billing_report(
                 if entry.location.region
                 else entry.location.site_name
             )
-        site_code = entry.job_code.code if entry.job_code else "—"
+        site_code = _resolve_site_code(entry, missing="—")
         report_data.append({
             "date": entry.work_date.isoformat(),
             "client": entry.client.name if entry.client else "Unassigned",
@@ -356,6 +376,7 @@ async def hours_by_job_code(
             selectinload(TimeEntry.client),
             selectinload(TimeEntry.service_type),
             selectinload(TimeEntry.job_code),
+            selectinload(TimeEntry.location),
         )
     )
 
@@ -374,7 +395,7 @@ async def hours_by_job_code(
     for entry in entries:
         client_name = entry.client.name if entry.client else "Unassigned"
         service_name = entry.service_type.name if entry.service_type else "General"
-        site_code = entry.job_code.code if entry.job_code else "N/A"
+        site_code = _resolve_site_code(entry, missing="N/A")
         key = (client_name, service_name, site_code)
 
         if key not in grouped:
@@ -582,8 +603,8 @@ def _build_entry_row(entry: TimeEntry, ts: Timesheet, emp: Employee, pp: PayPeri
         "client": entry.client.name if entry.client else "Unassigned",
         "location": entry.location.site_name if entry.location else "Unassigned",
         "region": entry.location.region if entry.location and entry.location.region else "",
-        "site_code": entry.job_code.code if entry.job_code else "",
-        "site_code_description": entry.job_code.description if entry.job_code else "",
+        "site_code": _resolve_site_code(entry),
+        "site_code_description": _resolve_site_code_description(entry),
         "service_type": entry.service_type.name if entry.service_type else "",
         "work_mode": entry.work_mode,
         "hours": float(entry.hours),
@@ -780,8 +801,8 @@ async def _run_detail_report(
         client = entry.client.name if entry.client else "Unassigned"
         location = entry.location.site_name if entry.location else "Unassigned"
         region = entry.location.region if entry.location and entry.location.region else ""
-        site_code = entry.job_code.code if entry.job_code else ""
-        job_code_description = entry.job_code.description if entry.job_code else ""
+        site_code = _resolve_site_code(entry)
+        job_code_description = _resolve_site_code_description(entry)
         service_type = entry.service_type.name if entry.service_type else ""
         vehicle_reimbursement_tier = entry.vehicle_reimbursement_tier or ""
 

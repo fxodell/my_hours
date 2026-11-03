@@ -39,6 +39,58 @@ async def _load_location_with_job_codes(db: DB, location_id: UUID, company_id: U
     return result.scalar_one_or_none()
 
 
+async def _ensure_job_code_for_location_site_code(db: DB, location: Location) -> JobCode | None:
+    """Keep Location.site_code mirrored as an active JobCode so reports and entry
+    forms can use the same code source.
+
+    Returns the created JobCode when a new row was inserted; otherwise None.
+    """
+    code = (location.site_code or "").strip()
+    if not code:
+        return None
+
+    existing = (
+        await db.execute(
+            select(JobCode).where(
+                JobCode.location_id == location.id,
+                JobCode.code == code,
+            )
+        )
+    ).scalar_one_or_none()
+    if existing:
+        if not existing.is_active:
+            existing.is_active = True
+            await db.flush()
+        return None
+
+    job_code = JobCode(
+        company_id=location.company_id,
+        location_id=location.id,
+        code=code,
+        description=location.site_name,
+        is_active=True,
+    )
+    db.add(job_code)
+    await db.flush()
+    return job_code
+
+
+async def _backfill_entries_if_single_job_code(db: DB, location_id: UUID, job_code: JobCode) -> None:
+    active_count = (
+        await db.execute(
+            select(func.count())
+            .select_from(JobCode)
+            .where(JobCode.location_id == location_id, JobCode.is_active == True)
+        )
+    ).scalar()
+    if active_count == 1:
+        await db.execute(
+            update(TimeEntry)
+            .where(TimeEntry.location_id == location_id, TimeEntry.job_code_id.is_(None))
+            .values(job_code_id=job_code.id)
+        )
+
+
 @router.get("", response_model=list[LocationResponse])
 async def list_locations(
     db: DB,
@@ -88,6 +140,10 @@ async def create_location(
 ) -> LocationResponse:
     location = Location(company_id=current_user.company_id, **location_data.model_dump())
     db.add(location)
+    await db.flush()
+    created_jc = await _ensure_job_code_for_location_site_code(db, location)
+    if created_jc is not None:
+        await _backfill_entries_if_single_job_code(db, location.id, created_jc)
     await db.commit()
     loc_full = await _load_location_with_job_codes(db, location.id, current_user.company_id)
     assert loc_full is not None
@@ -116,6 +172,9 @@ async def update_location(
     for field, value in update_data.items():
         setattr(location, field, value)
 
+    created_jc = await _ensure_job_code_for_location_site_code(db, location)
+    if created_jc is not None:
+        await _backfill_entries_if_single_job_code(db, location.id, created_jc)
     await db.commit()
     loc_full = await _load_location_with_job_codes(db, location_id, current_user.company_id)
     assert loc_full is not None
@@ -186,22 +245,12 @@ async def create_job_code(
 
     job_code = JobCode(company_id=current_user.company_id, location_id=location_id, **job_code_data.model_dump())
     db.add(job_code)
-    await db.commit()
-    await db.refresh(job_code)
-
+    await db.flush()
     # Auto-backfill: if this location now has exactly one active site code,
     # set it on all time entries for this location that have no site code.
-    active_count = (await db.execute(
-        select(func.count()).select_from(JobCode)
-        .where(JobCode.location_id == location_id, JobCode.is_active == True)
-    )).scalar()
-    if active_count == 1:
-        await db.execute(
-            update(TimeEntry)
-            .where(TimeEntry.location_id == location_id, TimeEntry.job_code_id.is_(None))
-            .values(job_code_id=job_code.id)
-        )
-        await db.commit()
+    await _backfill_entries_if_single_job_code(db, location_id, job_code)
+    await db.commit()
+    await db.refresh(job_code)
 
     return job_code
 

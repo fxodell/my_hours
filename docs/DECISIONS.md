@@ -33,8 +33,8 @@ Each decision should follow this format:
 - **Date**: 2026-03-18
 - **Status**: accepted
 - **Context**: Invoicing and client reporting need to break down hours by site (location) and AFE/job code.
-- **Decision**: The Billing report (`GET /api/reports/billing`) includes **location** (from `Location.site_name`, optionally with `region`) and **site_code** (from `JobCode.code`) on each row; nulls are shown as "Unassigned" and "—" respectively.
-- **Consequences**: Managers can export billing data with site and job code detail for invoicing and client breakdown without changing filters or summary behavior.
+- **Decision**: The Billing report (`GET /api/reports/billing`) includes **location** (from `Location.site_name`, optionally with `region`) and **site_code** on each row. Site code prefers `JobCode.code` on the time entry and falls back to `Location.site_code` when `job_code_id` is null; remaining nulls are shown as "Unassigned" and "—" respectively. The same resolution applies to employee-detail / my-time-detail / hours-by-site-code exports.
+- **Consequences**: Managers can export billing data with site and job code detail for invoicing and client breakdown without changing filters or summary behavior. Companies that store AFEs only on `Location.site_code` (e.g. BNB) still get a populated Site Code column.
 
 ## ADR-004: Timesheet list sorted by pay period then employee name
 
